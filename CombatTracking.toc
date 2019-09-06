@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: CombatTracking
+## SavedVariables: CombatTrackingDB
+## Author: BannZay
+## Notes: Tracks combat status
+## DefaultState: Enabled
+
+CombatTracking.lua
