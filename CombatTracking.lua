@@ -285,6 +285,7 @@ local function SetLock(value)
 	SetTextVisibility(showText)
 	SaveAllFrames(ctFrames)
 	isUpdateRequired = value
+	framesLocked = value
 end
 
 local function Init()
@@ -326,14 +327,12 @@ local function ToggleShowText()
 end
 
 local function ToggleLock()
-	framesLocked = not framesLocked
-	SetLock(framesLocked)
-	if (not framesLocked) then
-		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide")
-	else
+	SetLock(not framesLocked)
+	if (framesLocked) then
 		PrintMessage("Frames locked")
+	else
+		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide")
 	end
-	
 end
 
 local function HandleSlashCommand(cmd, ctFrames)
