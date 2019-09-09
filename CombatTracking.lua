@@ -184,6 +184,25 @@ local function SaveFrame(item)
 	end
 end
 
+local function SetScale(scale)
+	SetSetting(Settings.Setting_Scale, scale)
+
+	for i = 1, #ctFrames do
+		local ctFrame = ctFrames[i]
+		ctFrame:SetScale(scale)
+	end
+end
+
+local function UserAttemptsToSetScale(scale)
+	local number = tonumber(scale)
+	
+	if (number ~= nil and number >= 0) then
+		SetScale(number)
+	else
+		PrintMessage("Scale must be greater then zero")
+	end
+end
+
 local function ToggleHideFrame(frameTargetName)
 	local frame = Find(ctFrames, function(item) if CompareIgnoreCase(item.ParentTargetFrame, frameTargetName) then return true end end)
 	if frame ~= nil then 
@@ -374,14 +393,6 @@ local function ToggleLock()
 	end
 end
 
-local function SetScale(scale)
-	SetSetting(Settings.Setting_Scale, scale)
-
-	for i = 1, #ctFrames do
-		local ctFrame = ctFrames[i]
-		ctFrame:SetScale(scale)
-	end
-end
 
 local function HandleSlashCommand(cmd)
 	cmd = string.upper(cmd)
@@ -398,7 +409,7 @@ local function HandleSlashCommand(cmd)
 		elseif (command == "RESET") then Reset()
 		elseif (command == "SHOWTEXT") then ToggleShowText()
 		elseif (command == "HIDE" and cmdTable[2] ~= nil) then ToggleHideFrame(cmdTable[2])
-		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then SetScale(tonumber(cmdTable[2]))
+		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then UserAttemptsToSetScale(cmdTable[2])
 		elseif (command == "TEXTURE") then UseNextTexture()
 		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
 		else PrintHelp() end
