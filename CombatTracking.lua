@@ -171,8 +171,7 @@ local function OnMouseDown(self,button)
 end
 
 local function CreateCTFrame(parentFrameInfo, target)
-	local frame = CreateFrame("Frame")
-	frame:SetParent(nil)
+	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame", UIParent)
 	frame:SetSize(textureSize, textureSize)
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
