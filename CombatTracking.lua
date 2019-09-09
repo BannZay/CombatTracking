@@ -1,4 +1,8 @@
-local Setting_ShowTextAlways = "showTextAlways"
+local Settings =
+{
+	Setting_ShowTextAlways = "showTextAlways",
+	Setting_Scale = "scale",
+}
 
 CombatTrackingDB = CombatTrackingDB or {}
 local textureSize = 40
@@ -35,25 +39,11 @@ local function Find(tbl, filter)
 end
 
 local function Print(text)
-	if (text) then
-		ChatFrame1:AddMessage(text, 0, 1, 0)
-	else
-		ChatFrame1:AddMessage("nil passed!", 0, 1, 0)
-	end
+	ChatFrame1:AddMessage(text, 0, 1, 0)
 end
 
 local function PrintMessage(text)
 	Print("CombatTracking - " .. text)
-end
-
-local function PrintBool(bool)
-	if bool == nil then
-		Print("Unknown")
-	elseif bool == true then
-		Print("TRUE")
-	elseif bool == false then
-		Print("FALSE")
-	end
 end
 
 local function SetFrameHidden(frame, value)
@@ -75,8 +65,9 @@ local function PrintHelp()
 	Print("CombatTracking settings: Type '/ct <option>'")
 	Print("Options list:")
 	Print("lock - lock/unclock frames")
-	Print("showtext --- show/hide frames text")
-	Print("reset --- reset all settings to defaults")
+	Print("showtext - show/hide frames text")
+	Print("scale <scale> - set scale")
+	Print("reset - reset all settings to defaults")
 	Print("----------------------------------------------------------------------")
 end
 
@@ -194,6 +185,7 @@ local function CreateCTFrame(parentFrameInfo, target)
 	SetFrameHidden(frame, false)
 	
 	frame.t:SetTexture("Interface\\Icons\\ability_sap")
+	frame:SetScale(GetSetting(Settings.Setting_Scale))
 	
 	if target then
 		local fontString = frame:CreateFontString(nil,"ARTWORK")
@@ -261,14 +253,6 @@ local function LoadFrame(itemName)
 	end
 end
 
-
-local function SaveAllFrames(itemsCollection)
-	for i = 1, #itemsCollection do
-		local frame = itemsCollection[i]
-		SaveFrame(frame)
-	end
-end
-
 local function SetLock(value)
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
@@ -281,9 +265,8 @@ local function SetLock(value)
 		end
 	end
 	
-	local showText = not value or GetSetting(Setting_ShowTextAlways) == true
+	local showText = not value or GetSetting(Settings.Setting_ShowTextAlways) == true
 	SetTextVisibility(showText)
-	SaveAllFrames(ctFrames)
 	isUpdateRequired = value
 	framesLocked = value
 end
@@ -293,7 +276,8 @@ local function Init()
 		CombatTrackingDB.Settings = {}
 	end
 	
-	InitSetting(Setting_ShowTextAlways, false)
+	InitSetting(Settings.Setting_ShowTextAlways, false)
+	InitSetting(Settings.Setting_Scale, 1)
 
 	for targetName, frameInfo in pairs(itemsDefaultLocations) do
 		local parentFrame = frameInfo.parentFrame
@@ -302,10 +286,9 @@ local function Init()
 		UpdateItem(item)
 	end
 	
-	SetTextVisibility(GetSetting(Setting_ShowTextAlways))
+	SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways))
 	SetLock(true)
 end
-
 
 local function Reset()
 	CombatTrackingDB = {}
@@ -322,7 +305,7 @@ local function Reset()
 end
 
 local function ToggleShowText()
-	local newSettingValue = InvertSetting(Setting_ShowTextAlways, true)
+	local newSettingValue = InvertSetting(Settings.Setting_ShowTextAlways, true)
 	SetTextVisibility(newSettingValue)
 end
 
@@ -335,7 +318,16 @@ local function ToggleLock()
 	end
 end
 
-local function HandleSlashCommand(cmd, ctFrames)
+local function SetScale(scale)
+	SetSetting(Settings.Setting_Scale, scale)
+
+	for i = 1, #ctFrames do
+		local ctFrame = ctFrames[i]
+		ctFrame:SetScale(scale)
+	end
+end
+
+local function HandleSlashCommand(cmd)
 	cmd = string.upper(cmd)
 	
 	local cmdTable = {}
@@ -350,6 +342,7 @@ local function HandleSlashCommand(cmd, ctFrames)
 		elseif (command == "RESET") then Reset()
 		elseif (command == "SHOWTEXT") then ToggleShowText()
 		elseif (command == "HIDE" and cmdTable[2]) then ToggleHideFrame(cmdTable[2])
+		elseif (command == "SCALE" and tonumber(cmdTable[2])) then SetScale(tonumber(cmdTable[2]))
 		else PrintHelp() end
 	else
 		PrintHelp()
@@ -367,7 +360,7 @@ local function OnUpdate(self)
 	end
 end
 
-SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd, ctFrames) end
+SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
