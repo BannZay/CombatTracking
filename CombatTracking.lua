@@ -2,6 +2,8 @@ local Settings =
 {
 	Setting_ShowTextAlways = "showTextAlways",
 	Setting_Scale = "scale",
+	Setting_Texture = "texture",
+	Setting_Inverted = "inverted",
 }
 
 CombatTrackingDB = CombatTrackingDB or {}
@@ -26,6 +28,12 @@ local itemsDefaultLocations =
 	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil},
 }
 
+local textureList = 
+{
+	"Interface\\Icons\\ability_sap",
+	"Interface\\Icons\\ABILITY_DUALWIELD",
+}
+
 local function CompareIgnoreCase(str1, str2)
 	return string.upper(str1) == string.upper(str2)
 end
@@ -39,11 +47,21 @@ local function Find(tbl, filter)
 end
 
 local function Print(text)
-	ChatFrame1:AddMessage(text, 0, 1, 0)
+	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
 end
 
 local function PrintMessage(text)
 	Print("CombatTracking - " .. text)
+end
+
+local function BoolToString(bool)
+	if (bool == nil) then
+		return "nil"
+	elseif (bool == true) then
+		return "true"
+	else
+		return "false"
+	end
 end
 
 local function SetFrameHidden(frame, value)
@@ -64,9 +82,11 @@ local function PrintHelp()
 	Print("----------------------------------------------------------------------")
 	Print("CombatTracking settings: Type '/ct <option>'")
 	Print("Options list:")
-	Print("lock - lock/unclock frames")
-	Print("showtext - show/hide frames text")
-	Print("scale <scale> - set scale")
+	Print("lock - [lock/unclock] frames")
+	Print("showtext - [show/hide] frames text")
+	Print("scale <scale> - set scale to <scale>")
+	Print("texture - use another texture")
+	Print("invert - show frame when unit [in/not in] combat")
 	Print("reset - reset all settings to defaults")
 	Print("----------------------------------------------------------------------")
 end
@@ -76,21 +96,22 @@ local function PrintGreetings()
 end
 
 local function GetSetting(settingName)
-	if (CombatTrackingDB.Settings and CombatTrackingDB.Settings[settingName]) then 
+	if (CombatTrackingDB.Settings ~= nil and CombatTrackingDB.Settings[settingName] ~= nil) then 
 		return CombatTrackingDB.Settings[settingName]
 	end
 end
 
 local function SetSetting(settingName, value)
-	if (not CombatTrackingDB.Settings) then CombatTrackingDB.Settings = {} return false end
+	if (CombatTrackingDB.Settings == nil) then 
+		CombatTrackingDB.Settings = {}
+	end
 	
 	CombatTrackingDB.Settings[settingName] = value
-	return true
 end
 
 local function InitSetting(settingName, defaultValue)
 	local setting = GetSetting(settingName)
-	if not setting then
+	if (setting == nil) then
 		SetSetting(settingName, defaultValue)
 	end
 	
@@ -100,7 +121,7 @@ end
 local function InvertSetting(settingName, defaultValue)
 	local setting = GetSetting(settingName)
 	local newSetting
-	if setting then 
+	if setting ~= nil then 
 		newSetting = not setting 
 	else 
 		newSetting = defaultValue 
@@ -111,23 +132,35 @@ local function InvertSetting(settingName, defaultValue)
 end
 
 local function SetVisible(target, value)
-	if target then
+	if target ~= nil then
 		if value then 
 			target:Show()
 		else
-			 target:Hide()
+			target:Hide()
 		end
 	end
 end
 
-local function FrameOnUpdate(self, target) 
-	if not GetFrameHidden(self) then
-		SetVisible(self, UnitExists(target) and not UnitAffectingCombat(target))
+local function FrameShouldBeVisible(frame, frameTarget)
+	if GetFrameHidden(frame) then 
+		return false 
+	end
+	
+	if (not UnitExists(frameTarget)) then
+		return false
+	end
+	
+	local invertedLogic = GetSetting(Settings.Setting_Inverted)
+	
+	if UnitAffectingCombat(frameTarget) then
+		return invertedLogic
+	else
+		return not invertedLogic
 	end
 end
 
 local function SaveFrame(item)
-	if item then
+	if item ~= nil then
 		local target = item.ParentTargetFrame
 		local point, relativeTo, relativePoint, xOfs, yOfs = item:GetPoint(n)
 	
@@ -138,13 +171,12 @@ local function SaveFrame(item)
 		frameInfo.relativePoint = nil
 		frameInfo.hidden = GetFrameHidden(item)
 		
-		if (relativeTo) then 
-			for target, parentFrameInfo in pairs(itemsDefaultLocations) do
-				local parentFrame = parentFrameInfo.parentFrame
-				if (relativeTo == parentFrame) then
-					frameInfo.point = "Left"
-					frameInfo.relativePoint = relativePoint
-				end
+		if (relativeTo ~= nil) then
+			local parentFrameInfo = Find(itemsDefaultLocations, function(x) return x.parentFrame == relativeTo end)
+			
+			if parentFrameInfo ~= nil then
+				frameInfo.point = "Left"
+				frameInfo.relativePoint = relativePoint
 			end
 		end
 		
@@ -154,7 +186,7 @@ end
 
 local function ToggleHideFrame(frameTargetName)
 	local frame = Find(ctFrames, function(item) if CompareIgnoreCase(item.ParentTargetFrame, frameTargetName) then return true end end)
-	if frame then 
+	if frame ~= nil then 
 		SetFrameHidden(frame, not GetFrameHidden(frame))
 		SaveFrame(frame)
 	else
@@ -170,6 +202,29 @@ local function OnMouseDown(self,button)
 	end
 end
 
+local function SetFramesTexture(texture)
+	for i = 1, #ctFrames do
+		ctFrames[i].t:SetTexture(texture)
+	end
+	
+	SetSetting(Settings.Setting_Texture, texture)
+end
+
+local function UseNextTexture()
+	local currentTexture = GetSetting(Settings.Setting_Texture)
+	
+	local value, currentIndex = Find(textureList, function(x) return x == currentTexture end)
+	local nextIndex
+	
+	if (currentIndex == nil or currentIndex == #textureList) then
+		nextIndex = 1
+	else
+		nextIndex = currentIndex + 1
+	end
+	
+	SetFramesTexture(textureList[nextIndex])
+end
+
 local function CreateCTFrame(parentFrameInfo, target)
 	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame", UIParent)
 	frame:SetSize(textureSize, textureSize)
@@ -183,10 +238,10 @@ local function CreateCTFrame(parentFrameInfo, target)
 	-- custom
 	SetFrameHidden(frame, false)
 	
-	frame.t:SetTexture("Interface\\Icons\\ability_sap")
+	frame.t:SetTexture(GetSetting(Settings.Setting_Texture))
 	frame:SetScale(GetSetting(Settings.Setting_Scale))
 	
-	if target then
+	if target ~= nil then
 		local fontString = frame:CreateFontString(nil,"ARTWORK")
 		fontString:SetFont("Fonts\\ARIALN.ttf", 13, "OUTLINE")
 		fontString:SetPoint("CENTER",0,0)
@@ -218,13 +273,13 @@ local function SetTextVisibility(value)
 end
 
 local function CreateDefault(itemName, setPoints)
-	local parentFrameInfo = Find(itemsDefaultLocations, function(value, index) if CompareIgnoreCase(index, itemName) then return true end end)
+	local parentFrameInfo = Find(itemsDefaultLocations, function(value, index) return CompareIgnoreCase(index, itemName) end)
 	
 	local frame = CreateCTFrame(parentFrameInfo, itemName)
 	frame.ParentTargetFrame = itemName
 	
 	if setPoints == true then
-		if (parentFrameInfo.parentFrame) then
+		if (parentFrameInfo.parentFrame ~= nil) then
 			frame:SetPoint(parentFrameInfo.point, parentFrameInfo.parentFrame, parentFrameInfo.relativePoint, parentFrameInfo.x, parentFrameInfo.y) 
 		else
 			frame:SetPoint(parentFrameInfo.point, parentFrameInfo.x, parentFrameInfo.y)
@@ -237,11 +292,11 @@ end
 
 local function LoadFrame(itemName)
 	local fi  = CombatTrackingDB[itemName]
-	if (fi) then
+	if (fi ~= nil) then
 		local frame = CreateDefault(itemName)
 		SetFrameHidden(frame, fi.hidden)
 		
-		if fi.relativePoint then 
+		if fi.relativePoint ~= nil then 
 			frame:SetPoint(fi.point, itemsDefaultLocations[itemName].parentFrame, fi.relativePoint, fi.xOfs, fi.yOfs)
 		else
 			frame:SetPoint(fi.point, fi.xOfs, fi.yOfs)
@@ -271,17 +326,19 @@ local function SetLock(value)
 end
 
 local function Init()
-	if not CombatTrackingDB.Settings then 
+	if CombatTrackingDB.Settings == nil then 
 		CombatTrackingDB.Settings = {}
 	end
 	
 	InitSetting(Settings.Setting_ShowTextAlways, false)
 	InitSetting(Settings.Setting_Scale, 1)
-
+	InitSetting(Settings.Setting_Texture, textureList[1])
+	local s = InitSetting(Settings.Setting_Inverted, false)
+	
 	for targetName, frameInfo in pairs(itemsDefaultLocations) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
-		if (not item) then item = CreateDefault(targetName, true) end
+		if item == nil then item = CreateDefault(targetName, true) end
 		UpdateItem(item)
 	end
 	
@@ -336,12 +393,14 @@ local function HandleSlashCommand(cmd)
 	end
 	
 	local command = cmdTable[1]
-	if command then
+	if command ~= nil then
 		if (command == "LOCK") then ToggleLock()
 		elseif (command == "RESET") then Reset()
 		elseif (command == "SHOWTEXT") then ToggleShowText()
-		elseif (command == "HIDE" and cmdTable[2]) then ToggleHideFrame(cmdTable[2])
-		elseif (command == "SCALE" and tonumber(cmdTable[2])) then SetScale(tonumber(cmdTable[2]))
+		elseif (command == "HIDE" and cmdTable[2] ~= nil) then ToggleHideFrame(cmdTable[2])
+		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then SetScale(tonumber(cmdTable[2]))
+		elseif (command == "TEXTURE") then UseNextTexture()
+		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
 		else PrintHelp() end
 	else
 		PrintHelp()
@@ -351,9 +410,9 @@ end
 local function OnUpdate(self)
 	if isUpdateRequired then
 		 for i = 1, #ctFrames do
-			local itemToUpdate = ctFrames[i]
-			if itemToUpdate and not GetFrameHidden(itemToUpdate) then
-				FrameOnUpdate(itemToUpdate, itemToUpdate.ParentTargetFrame)
+			local frame = ctFrames[i]
+			if frame ~= nil then
+				SetVisible(frame, FrameShouldBeVisible(frame, frame.ParentTargetFrame))
 			end
 		end
 	end
