@@ -142,6 +142,10 @@ local function SetVisible(target, value)
 end
 
 local function FrameShouldBeVisible(frame, frameTarget)
+	if (not UIParent:IsVisible()) then -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
+		return false
+	end
+
 	if GetFrameHidden(frame) then 
 		return false 
 	end
@@ -245,7 +249,7 @@ local function UseNextTexture()
 end
 
 local function CreateCTFrame(parentFrameInfo, target)
-	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame", UIParent)
+	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
 	frame:SetSize(textureSize, textureSize)
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
