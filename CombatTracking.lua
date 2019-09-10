@@ -67,7 +67,7 @@ end
 
 local function PrintHelp()
 	Print("----------------------------------------------------------------------")
-	Print("CombatTracking settings: Type '/ct <option>'")
+	Print("CombatTracking settings: Type '/combatTracking <option>' or '/ct <option>'")
 	Print("Options list:")
 	Print("lock - [lock/unclock] frames")
 	Print("showtext - [show/hide] frames text")
@@ -80,7 +80,7 @@ local function PrintHelp()
 end
 
 local function PrintGreetings()
-	Print("Combat Tracking has been load. Type '/ct' for options")
+	Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
 end
 
 
@@ -512,6 +512,8 @@ local eventHandlers =
 
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
+SLASH_CombatTracking2 = "/combatTracking"
+SLASH_CombatTracking2 = "/cTracking"
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
 controlFrame:RegisterEvent("VARIABLES_LOADED")
