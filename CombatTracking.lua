@@ -8,11 +8,11 @@ local Settings =
 }
 
 CombatTrackingDB = CombatTrackingDB or {}
-local textureSize = 40
-local framesLocked = true
 local ctFrames = {}
+
+local textureSize = 40
+local framesIsLocked = true
 local isUpdateRequired = true
-local useSoundColor = 100
 local frameNoSoundNote = "(no sound)"
 
 local targetsDefaultSettings =
@@ -31,11 +31,15 @@ local targetsDefaultSettings =
 	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil, useSound = true},
 }
 
-local textureList = 
+local textures =
 {
 	"Interface\\Icons\\ability_sap",
 	"Interface\\Icons\\ABILITY_DUALWIELD",
 }
+
+
+-------------------------------- General --------------------------------
+
 
 local function CompareIgnoreCase(str1, str2)
 	return string.upper(str1) == string.upper(str2)
@@ -49,56 +53,16 @@ local function Find(tbl, filter)
 	end
 end
 
+
+-------------------------------- Printing --------------------------------
+
+
 local function Print(text)
 	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
 end
 
 local function PrintMessage(text)
 	Print("CombatTracking - " .. text)
-end
-
-local function BoolToString(bool)
-	if (bool == nil) then
-		return "nil"
-	elseif (bool == true) then
-		return "true"
-	else
-		return "false"
-	end
-end
-
-local function SetFrameUseSound(frame, value)
-	frame.useSound = value
-	
-	if (value) then
-		frame.musicText:SetText(nil)
-	else
-		frame.musicText:SetText(frameNoSoundNote)
-	end
-end
-
-local function GetFrameUseSound(frame)
-	if (frame.useSound) then
-		return true
-	else
-		return false
-	end
-end
-
-local function SetFrameHidden(frame, value)
-	frame.CTHidden = value
-	
-	if value then
-		frame.t:SetAlpha(0.2)
-	else
-		frame.t:SetAlpha(1)
-	end
-	
-	SetFrameUseSound(frame, not value)
-end
-
-local function GetFrameHidden(frame)
-	return frame.CTHidden == true
 end
 
 local function PrintHelp()
@@ -118,6 +82,10 @@ end
 local function PrintGreetings()
 	Print("Combat Tracking has been load. Type '/ct' for options")
 end
+
+
+---------------------------------------------------------------- DB settings ----------------------------------------------------------------
+
 
 local function GetSetting(settingName)
 	return CombatTrackingDB.Settings[settingName]
@@ -149,6 +117,40 @@ local function InvertSetting(settingName, defaultValue)
 	return newSetting
 end
 
+
+---------------------------------------------------------------- Frame settings ----------------------------------------------------------------
+
+
+local function SetFrameUseSound(frame, value)
+	frame.useSound = value
+	
+	if (value) then
+		frame.musicText:SetText(nil)
+	else
+		frame.musicText:SetText(frameNoSoundNote)
+	end
+end
+
+local function GetFrameUseSound(frame)
+	return frame.useSound
+end
+
+local function SetFrameHidden(frame, value)
+	frame.CTHidden = value
+	
+	if value then
+		frame.t:SetAlpha(0.2)
+	else
+		frame.t:SetAlpha(1)
+	end
+	
+	SetFrameUseSound(frame, not value)
+end
+
+local function GetFrameHidden(frame)
+	return frame.CTHidden == true
+end
+
 local function SetVisible(target, value)
 	if target ~= nil then
 		if value then 
@@ -159,22 +161,30 @@ local function SetVisible(target, value)
 	end
 end
 
-local function FrameShouldBeVisible(frame, frameTarget)
-	
-	if not UIParent:IsVisible() -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
-	or GetFrameHidden(frame)
-	or not UnitExists(frameTarget)
-	or UnitIsDead(frameTarget)
-		then return false
+local function SetFramesScale(scale)
+	SetSetting(Settings.Setting_Scale, scale)
+
+	for i = 1, #ctFrames do
+		local ctFrame = ctFrames[i]
+		ctFrame:SetScale(scale)
+	end
+end
+
+local function SetFramesTexture(texture)
+	for i = 1, #ctFrames do
+		ctFrames[i].t:SetTexture(texture)
 	end
 	
-	local invertedLogic = GetSetting(Settings.Setting_Inverted)
-	
-	if UnitAffectingCombat(frameTarget) then
-		return invertedLogic
-	else
-		return not invertedLogic
-	end
+	SetSetting(Settings.Setting_Texture, texture)
+end
+
+
+---------------------------------------------------------------- Frames management ----------------------------------------------------------------
+
+
+local function SetFrameAsNew(frameTarget)
+	local frame = Find(ctFrames, function(x) return x.TargetType == frameTarget end)
+	frame.New = true
 end
 
 local function SaveFrame(item)
@@ -203,33 +213,8 @@ local function SaveFrame(item)
 	end
 end
 
-local function SetScale(scale)
-	SetSetting(Settings.Setting_Scale, scale)
-
-	for i = 1, #ctFrames do
-		local ctFrame = ctFrames[i]
-		ctFrame:SetScale(scale)
-	end
-end
-
-local function UserAttemptsToSetScale(scale)
-	local number = tonumber(scale)
-	
-	if (number ~= nil and number >= 0) then
-		SetScale(number)
-	else
-		PrintMessage("Scale must be greater then zero")
-	end
-end
-
-local function ToggleHideFrame(frameTargetName)
-	local frame = Find(ctFrames, function(item) return CompareIgnoreCase(item.TargetType, frameTargetName) end)
-	SetFrameHidden(frame, not GetFrameHidden(frame))
-	SaveFrame(frame)
-end
-
 local function OnMouseDown(self,button)
-	if button == "LeftButton" then 
+	if button == "LeftButton" then
 		self:StartMoving()
 	elseif button == "RightButton" then
 		if (IsLeftControlKeyDown()) then
@@ -238,32 +223,11 @@ local function OnMouseDown(self,button)
 				SaveFrame(frame)
 			end
 		else
-			ToggleHideFrame(self.TargetType)
+			local frame = Find(ctFrames, function(item) return CompareIgnoreCase(item.TargetType, self.TargetType) end)
+			SetFrameHidden(frame, not GetFrameHidden(frame))
+			SaveFrame(frame)
 		end
 	end
-end
-
-local function SetFramesTexture(texture)
-	for i = 1, #ctFrames do
-		ctFrames[i].t:SetTexture(texture)
-	end
-	
-	SetSetting(Settings.Setting_Texture, texture)
-end
-
-local function UseNextTexture()
-	local currentTexture = GetSetting(Settings.Setting_Texture)
-	
-	local value, currentIndex = Find(textureList, function(x) return x == currentTexture end)
-	local nextIndex
-	
-	if (currentIndex == nil or currentIndex == #textureList) then
-		nextIndex = 1
-	else
-		nextIndex = currentIndex + 1
-	end
-	
-	SetFramesTexture(textureList[nextIndex])
 end
 
 local function CreateCTFrame(parentFrameInfo, target)
@@ -298,27 +262,7 @@ local function CreateCTFrame(parentFrameInfo, target)
 	return frame
 end
 
-local function UpdateItem(target)
-	for i = 1, #ctFrames do 
-		local itemToUpdate = ctFrames[i]
-		if (itemToUpdate.TargetType == target) then
-			table.remove(ctFrames, i)
-			itemToUpdate:Hide()
-			break
-		end
-	end
-
-	table.insert(ctFrames, target)
-end
-
-local function SetTextVisibility(value)
-	for i = 1, #ctFrames do
-		SetVisible(ctFrames[i].targetText, value)
-		SetVisible(ctFrames[i].musicText, value)
-	end
-end
-
-local function CreateDefault(itemName, setPoints)
+local function CreateDefaultFrame(itemName, setPoints)
 	local parentFrameInfo = Find(targetsDefaultSettings, function(value, index) return CompareIgnoreCase(index, itemName) end)
 	
 	local frame = CreateCTFrame(parentFrameInfo, itemName)
@@ -340,7 +284,7 @@ end
 local function LoadFrame(itemName)
 	local fi  = CombatTrackingDB[itemName]
 	if (fi ~= nil) then
-		local frame = CreateDefault(itemName)
+		local frame = CreateDefaultFrame(itemName)
 		SetFrameHidden(frame, fi.hidden)
 		SetFrameUseSound(frame, fi.useSound)
 		
@@ -355,10 +299,16 @@ local function LoadFrame(itemName)
 	end
 end
 
+local function SetTextVisibility(targetVisibility, musicVisibility)
+	for i = 1, #ctFrames do
+		SetVisible(ctFrames[i].targetText, targetVisibility)
+		SetVisible(ctFrames[i].musicText, musicVisibility)
+	end
+end
+
 local function SetLock(value)
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
-		
 		frame:EnableMouse(not value)
 		if (not value) then 
 			frame:Show()
@@ -367,10 +317,31 @@ local function SetLock(value)
 		end
 	end
 	
-	local showText = not value or GetSetting(Settings.Setting_ShowTextAlways) == true
-	SetTextVisibility(showText)
+	if (value) then
+		SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways), false)
+	else
+		SetTextVisibility(true, true)
+	end
+	
 	isUpdateRequired = value
-	framesLocked = value
+	framesIsLocked = value
+end
+
+
+---------------------------------------------------------------- Initialization ----------------------------------------------------------------
+
+
+local function UpdateItem(target)
+	for i = 1, #ctFrames do 
+		local itemToUpdate = ctFrames[i]
+		if (itemToUpdate.TargetType == target) then
+			table.remove(ctFrames, i)
+			itemToUpdate:Hide()
+			break
+		end
+	end
+
+	table.insert(ctFrames, target)
 end
 
 local function Init()
@@ -380,19 +351,65 @@ local function Init()
 	
 	InitSetting(Settings.Setting_ShowTextAlways, false)
 	InitSetting(Settings.Setting_Scale, 1)
-	InitSetting(Settings.Setting_Texture, textureList[1])
+	InitSetting(Settings.Setting_Texture, textures[1])
 	InitSetting(Settings.Setting_Inverted, false)
 	InitSetting(Settings.Setting_Music, true)
 	
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
-		if item == nil then item = CreateDefault(targetName, true) end
+		if item == nil then item = CreateDefaultFrame(targetName, true) end
 		UpdateItem(item)
 	end
 	
 	SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways))
 	SetLock(true)
+end
+
+
+---------------------------------------------------------------- User Command Handlers ----------------------------------------------------------------
+
+
+local function UserAttemptsToSetScale(scale)
+	local number = tonumber(scale)
+	
+	if (number ~= nil and number >= 0) then
+		SetFramesScale(number)
+	else
+		PrintMessage("Scale must be greater then zero")
+	end
+end
+
+local function UseNextTexture()
+	local currentTexture = GetSetting(Settings.Setting_Texture)
+	
+	local value, currentIndex = Find(textures, function(x) return x == currentTexture end)
+	local nextIndex
+	
+	if (currentIndex == nil or currentIndex == #textures) then
+		nextIndex = 1
+	else
+		nextIndex = currentIndex + 1
+	end
+	
+	SetFramesTexture(textures[nextIndex])
+end
+
+local function ToggleShowText()
+	local newSettingValue = InvertSetting(Settings.Setting_ShowTextAlways, true)
+	
+	if (framesIsLocked) then
+		SetTextVisibility(newSettingValue)
+	end
+end
+
+local function ToggleLock()
+	SetLock(not framesIsLocked)
+	if (framesIsLocked) then
+		PrintMessage("Frames locked")
+	else
+		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide or ctrl + right click to toggle sound setting")
+	end
 end
 
 local function Reset()
@@ -408,21 +425,6 @@ local function Reset()
 	
 	Init()
 end
-
-local function ToggleShowText()
-	local newSettingValue = InvertSetting(Settings.Setting_ShowTextAlways, true)
-	SetTextVisibility(newSettingValue)
-end
-
-local function ToggleLock()
-	SetLock(not framesLocked)
-	if (framesLocked) then
-		PrintMessage("Frames locked")
-	else
-		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide or ctrl + right click to toggle sound setting")
-	end
-end
-
 
 local function HandleSlashCommand(cmd)
 	cmd = string.upper(cmd)
@@ -446,6 +448,28 @@ local function HandleSlashCommand(cmd)
 		else PrintHelp() end
 	else
 		PrintHelp()
+	end
+end
+
+
+---------------------------------------------------------------- Main ----------------------------------------------------------------
+
+
+local function FrameShouldBeVisible(frame, frameTarget)
+	
+	if not UIParent:IsVisible() -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
+	or GetFrameHidden(frame)
+	or not UnitExists(frameTarget)
+	or UnitIsDead(frameTarget)
+		then return false
+	end
+	
+	local invertedLogic = GetSetting(Settings.Setting_Inverted)
+	
+	if UnitAffectingCombat(frameTarget) then
+		return invertedLogic
+	else
+		return not invertedLogic
 	end
 end
 
@@ -474,13 +498,8 @@ local function OnUpdate(self)
 			end
 		end
 	end
-	
 end
 
-local function SetFrameAsNew(frameTarget)
-	local frame = Find(ctFrames, function(x) return x.TargetType == frameTarget end)
-	frame.New = true
-end
 
 local eventHandlers =
 {
