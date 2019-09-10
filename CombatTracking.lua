@@ -17,7 +17,7 @@ local frameNoSoundNote = "(no sound)"
 
 local targetsDefaultSettings =
 {
-	["Player"] = {point = "Left", x = -3, y = 5, parentFrame = PlayerFrame, relativePoint = "Right", useSound = false},
+	["Player"] = {point = "Left", x = -3, y = 5, parentFrame = PlayerFrame, relativePoint = "Right", useSound = false, hidden = true},
 	["Target"] = {point = "Left", x = -35, y = 5, parentFrame = TargetFrame, relativePoint = "Right", useSound = true},
 	["Focus"] =  {point = "Left", x = -25, y = 5, parentFrame = FocusFrame, relativePoint = "Right", useSound = true},
 	["Party1"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame1, relativePoint = "Right", useSound = false},
@@ -260,13 +260,13 @@ local function CreateCTFrame(parentFrameInfo, target)
 	musicText:Hide()
 	frame.musicText = musicText
 	
-	local frameSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
+	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
 	
-	if (frameSettings ~= nil and frameSettings.attachableToGladius) then
+	if (frameDefaultSettings ~= nil and frameDefaultSettings.attachableToGladius) then
 		frame.attachableToGladius = true
 	end
 	
-	SetFrameHidden(frame, false)
+	frame.TargetType = target
 	
 	return frame
 end
@@ -275,7 +275,7 @@ local function CreateDefaultFrame(itemName, setPoints)
 	local parentFrameInfo = Find(targetsDefaultSettings, function(value, index) return CompareIgnoreCase(index, itemName) end)
 	
 	local frame = CreateCTFrame(parentFrameInfo, itemName)
-	frame.TargetType = itemName
+	
 	SetFrameUseSound(frame, parentFrameInfo.useSound)
 	
 	if setPoints == true then
@@ -286,7 +286,13 @@ local function CreateDefaultFrame(itemName, setPoints)
 		end
 		frame.t:SetAllPoints()
 	end
-
+	
+	SetFrameHidden(frame, parentFrameInfo.hidden)
+	
+	if (not GetFrameHidden(frame)) then
+		SetFrameUseSound(frame, parentFrameInfo.useSound)
+	end
+	
 	return frame
 end
 
