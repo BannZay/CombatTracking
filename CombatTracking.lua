@@ -233,6 +233,8 @@ end
 local function CreateCTFrame(parentFrameInfo, target)
 	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
 	frame:SetSize(textureSize, textureSize)
+	frame:SetFrameStrata("MEDIUM")
+	frame:SetFrameLevel(30)
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
 	frame:SetScript("OnMouseDown", OnMouseDown)
