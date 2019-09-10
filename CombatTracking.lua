@@ -2,9 +2,9 @@ local Settings =
 {
 	Setting_ShowTextAlways = "showTextAlways",
 	Setting_Scale = "scale",
-	Setting_Texture = "texture",
+	Setting_TextureId = "textureId",
 	Setting_Inverted = "inverted",
-	Setting_Music = "playMusic",
+	Setting_PlayMusic = "playMusic",
 	Setting_AttachedToGladius = "attachedToGladius"
 }
 
@@ -35,6 +35,8 @@ local textures =
 {
 	"Interface\\Icons\\ability_sap",
 	"Interface\\Icons\\ABILITY_DUALWIELD",
+	"Interface\\Icons\\ability_ambush",
+	"Interface\\Icons\\ability_parry",
 }
 
 
@@ -53,35 +55,20 @@ local function Find(tbl, filter)
 	end
 end
 
-
--------------------------------- Printing --------------------------------
-
-
-local function Print(text)
-	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
+local function BooleanToString(bool)
+	if bool then
+		return "true"
+	else 
+		return "false"
+	end
 end
 
-local function PrintMessage(text)
-	Print("CombatTracking - " .. text)
-end
-
-local function PrintHelp()
-	Print("----------------------------------------------------------------------")
-	Print("CombatTracking settings: Type '/combatTracking <option>' or '/ct <option>'")
-	Print("Options list:")
-	Print("lock - [lock/unclock] frames")
-	Print("showtext - [show/hide] frames text")
-	Print("scale <scale> - set scale to <scale>")
-	Print("music - [not] play music")
-	Print("texture - use another texture")
-	Print("invert - show frame when unit [not] in combat")
-	Print("gladius - intergrate arena target frames into gladius")
-	Print("reset - reset all settings to defaults")
-	Print("----------------------------------------------------------------------")
-end
-
-local function PrintGreetings()
-	Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
+local function Switch(value, ifTrue, ifFalse)
+	if (value) then
+		return ifTrue
+	else
+		return ifFalse
+	end
 end
 
 
@@ -116,6 +103,37 @@ local function InvertSetting(settingName, defaultValue)
 	
 	SetSetting(settingName, newSetting)
 	return newSetting
+end
+
+
+-------------------------------- Printing --------------------------------
+
+
+local function Print(text)
+	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
+end
+
+local function PrintMessage(text)
+	Print("CombatTracking - " .. text)
+end
+
+local function PrintHelp()
+	Print("----------------------------------------------------------------------")
+	Print("CombatTracking settings: Type '/combatTracking <option>' or '/ct <option>'")
+	Print("Options list:")
+	Print("lock - "..Switch(framesIsLocked, "unlock", "lock").." frames")
+	Print("text - "..Switch(GetSetting(Settings.Setting_ShowTextAlways), "hide", "show").." frames text")
+	Print("scale <scale> - change scale from ".. GetSetting(Settings.Setting_Scale) .." to <scale>")
+	Print("music - "..Switch(GetSetting(Settings.Setting_PlayMusic), "mute", "unmute").." music")
+	Print("texture <optionalTextureId> - use another texture. Current TextureId = "..GetSetting(Settings.Setting_TextureId))
+	Print("invert - show frame when unit "..Switch(GetSetting(Settings.Setting_Inverted), "not in", "in").." combat")
+	Print("gladius - "..Switch(GetSetting(Settings.Setting_AttachedToGladius), "do not", "do").." intergrate arena target frames into gladius")
+	Print("reset - reset all settings to defaults")
+	Print("----------------------------------------------------------------------")
+end
+
+local function PrintGreetings()
+	Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
 end
 
 
@@ -171,15 +189,19 @@ local function SetFramesScale(scale)
 	end
 end
 
-local function SetFramesTexture(texture)
-	for i = 1, #ctFrames do
-		ctFrames[i].t:SetTexture(texture)
-	end
+local function SetFramesTexture(textureId)
+	local texture = textures[textureId]
 	
-	SetSetting(Settings.Setting_Texture, texture)
+	if (texture ~= nil) then
+		for i = 1, #ctFrames do
+			ctFrames[i].t:SetTexture(texture)
+		end
+		
+		SetSetting(Settings.Setting_TextureId, textureId)
+	else
+		SetFramesTexture(1)
+	end
 end
-
-
 ---------------------------------------------------------------- Frames management ----------------------------------------------------------------
 
 
@@ -243,7 +265,7 @@ local function CreateCTFrame(parentFrameInfo, target)
 	frame.t=frame:CreateTexture(nil,BORDER)
 	frame:Hide()
 	
-	frame.t:SetTexture(GetSetting(Settings.Setting_Texture))
+	frame.t:SetTexture(textures[GetSetting(Settings.Setting_TextureId)])
 	frame:SetScale(GetSetting(Settings.Setting_Scale))
 	
 	local targetText = frame:CreateFontString(nil,"ARTWORK")
@@ -411,9 +433,9 @@ local function Init()
 	
 	InitSetting(Settings.Setting_ShowTextAlways, false)
 	InitSetting(Settings.Setting_Scale, 1)
-	InitSetting(Settings.Setting_Texture, textures[1])
+	InitSetting(Settings.Setting_TextureId, 1)
 	InitSetting(Settings.Setting_Inverted, false)
-	InitSetting(Settings.Setting_Music, true)
+	InitSetting(Settings.Setting_PlayMusic, true)
 	InitSetting(Settings.Setting_AttachedToGladius, true)
 	
 	if (not IsAddOnLoaded("Gladius")) then
@@ -451,19 +473,12 @@ local function UserAttemptsToSetScale(scale)
 	end
 end
 
-local function UseNextTexture()
-	local currentTexture = GetSetting(Settings.Setting_Texture)
-	
-	local value, currentIndex = Find(textures, function(x) return x == currentTexture end)
-	local nextIndex
-	
-	if (currentIndex == nil or currentIndex == #textures) then
-		nextIndex = 1
-	else
-		nextIndex = currentIndex + 1
+local function UseNextTexture(optionalId)
+	if (optionalId == nil) then
+		optionalId = GetSetting(Settings.Setting_TextureId) + 1
 	end
 	
-	SetFramesTexture(textures[nextIndex])
+	SetFramesTexture(optionalId)
 end
 
 local function ToggleShowText()
@@ -520,11 +535,11 @@ local function HandleSlashCommand(cmd)
 	if command ~= nil then
 		if (command == "LOCK") then ToggleLock()
 		elseif (command == "RESET") then Reset()
-		elseif (command == "SHOWTEXT") then ToggleShowText()
+		elseif (command == "TEXT") then ToggleShowText()
 		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then UserAttemptsToSetScale(cmdTable[2])
-		elseif (command == "TEXTURE") then UseNextTexture()
+		elseif (command == "TEXTURE" and (cmdTable[2] == nil or tonumber(cmdTable[2]) ~= nil)) then UseNextTexture(tonumber(cmdTable[2]))
 		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
-		elseif (command == "MUSIC") then InvertSetting(Settings.Setting_Music)
+		elseif (command == "MUSIC") then InvertSetting(Settings.Setting_PlayMusic)
 		elseif (command == "GLADIUS") then ToggleAttachToGladius()
 		else PrintHelp() end
 	else
@@ -566,7 +581,7 @@ local function OnUpdate(self)
 						frame:Show()
 						
 						if (frame.New == false) then
-							if GetFrameUseSound(frame) and GetSetting(Settings.Setting_Music) then
+							if GetFrameUseSound(frame) and GetSetting(Settings.Setting_PlayMusic) then
 								PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
 							end
 						end
