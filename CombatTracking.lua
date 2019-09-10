@@ -14,6 +14,12 @@ local textureSize = 40
 local framesIsLocked = true
 local isUpdateRequired = true
 local frameNoSoundNote = "(no sound)"
+local ctToolTipText =
+{
+	"Left click - drag frame",
+	"Right click - toggle hide option",
+	"Right click with control - toggle sound option",
+}
 
 local targetsDefaultSettings =
 {
@@ -253,6 +259,31 @@ local function OnMouseDown(self,button)
 	end
 end
 
+function OnEnterTippedButton(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	
+	for k,v in pairs(self.tooltipTextLines) do
+		GameTooltip:AddLine(v)
+	end
+	
+	GameTooltip:Show()
+end
+
+function OnLeaveTippedButton()
+	GameTooltip_Hide()
+end
+
+function SetTooltip(self, textLines)
+	if textLines then
+		self.tooltipTextLines = textLines
+		self:SetScript("OnEnter", OnEnterTippedButton)
+		self:SetScript("OnLeave", OnLeaveTippedButton)
+	else
+		self:SetScript("OnEnter", nil)
+		self:SetScript("OnLeave", nil)
+	end
+end
+
 local function CreateCTFrame(parentFrameInfo, target)
 	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
 	frame:SetSize(textureSize, textureSize)
@@ -281,6 +312,8 @@ local function CreateCTFrame(parentFrameInfo, target)
 	musicText:SetText("(no sound)")
 	musicText:Hide()
 	frame.musicText = musicText
+	
+	SetTooltip(frame, ctToolTipText)
 	
 	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
 	
