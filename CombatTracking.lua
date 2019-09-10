@@ -4,6 +4,7 @@ local Settings =
 	Setting_Scale = "scale",
 	Setting_Texture = "texture",
 	Setting_Inverted = "inverted",
+	Setting_Music = "playMusic"
 }
 
 CombatTrackingDB = CombatTrackingDB or {}
@@ -11,21 +12,23 @@ local textureSize = 40
 local framesLocked = true
 local ctFrames = {}
 local isUpdateRequired = true
+local useSoundColor = 100
+local frameNoSoundNote = "(no sound)"
 
-local itemsDefaultLocations =
+local targetsDefaultSettings =
 {
-	["Player"] = {point = "Left", x = -3, y = 5, parentFrame = PlayerFrame, relativePoint = "Right"},
-	["Target"] = {point = "Left", x = -35, y = 5, parentFrame = TargetFrame, relativePoint = "Right"},
-	["Focus"] =  {point = "Left", x = -25, y = 5, parentFrame = FocusFrame, relativePoint = "Right"},
-	["Party1"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame1, relativePoint = "Right"},
-	["Party2"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame2, relativePoint = "Right"},
-	["Party3"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame3, relativePoint = "Right"},
-	["Party4"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame4, relativePoint = "Right"},
-	["Arena1"] = {point = "TOP", x = (textureSize + 5) * -2, y = 0, parentFrame = nil},
-	["Arena2"] = {point = "TOP", x = (textureSize + 5) * -1, y = 0, parentFrame = nil},
-	["Arena3"] = {point = "TOP", x = (textureSize + 5) * 0, y = 0, parentFrame = nil},
-	["Arena4"] = {point = "TOP", x = (textureSize + 5) * 1, y = 0, parentFrame = nil},
-	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil},
+	["Player"] = {point = "Left", x = -3, y = 5, parentFrame = PlayerFrame, relativePoint = "Right", useSound = false},
+	["Target"] = {point = "Left", x = -35, y = 5, parentFrame = TargetFrame, relativePoint = "Right", useSound = true},
+	["Focus"] =  {point = "Left", x = -25, y = 5, parentFrame = FocusFrame, relativePoint = "Right", useSound = true},
+	["Party1"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame1, relativePoint = "Right", useSound = false},
+	["Party2"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame2, relativePoint = "Right", useSound = false},
+	["Party3"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame3, relativePoint = "Right", useSound = false},
+	["Party4"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame4, relativePoint = "Right", useSound = false},
+	["Arena1"] = {point = "TOP", x = (textureSize + 5) * -2, y = 0, parentFrame = nil, useSound = true},
+	["Arena2"] = {point = "TOP", x = (textureSize + 5) * -1, y = 0, parentFrame = nil, useSound = true},
+	["Arena3"] = {point = "TOP", x = (textureSize + 5) * 0, y = 0, parentFrame = nil, useSound = true},
+	["Arena4"] = {point = "TOP", x = (textureSize + 5) * 1, y = 0, parentFrame = nil, useSound = true},
+	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil, useSound = true},
 }
 
 local textureList = 
@@ -64,6 +67,24 @@ local function BoolToString(bool)
 	end
 end
 
+local function SetFrameUseSound(frame, value)
+	frame.useSound = value
+	
+	if (value) then
+		frame.musicText:SetText(nil)
+	else
+		frame.musicText:SetText(frameNoSoundNote)
+	end
+end
+
+local function GetFrameUseSound(frame)
+	if (frame.useSound) then
+		return true
+	else
+		return false
+	end
+end
+
 local function SetFrameHidden(frame, value)
 	frame.CTHidden = value
 	
@@ -72,6 +93,8 @@ local function SetFrameHidden(frame, value)
 	else
 		frame.t:SetAlpha(1)
 	end
+	
+	SetFrameUseSound(frame, not value)
 end
 
 local function GetFrameHidden(frame)
@@ -85,8 +108,9 @@ local function PrintHelp()
 	Print("lock - [lock/unclock] frames")
 	Print("showtext - [show/hide] frames text")
 	Print("scale <scale> - set scale to <scale>")
+	Print("music - [not] play music")
 	Print("texture - use another texture")
-	Print("invert - show frame when unit [in/not in] combat")
+	Print("invert - show frame when unit [not] in combat")
 	Print("reset - reset all settings to defaults")
 	Print("----------------------------------------------------------------------")
 end
@@ -96,16 +120,10 @@ local function PrintGreetings()
 end
 
 local function GetSetting(settingName)
-	if (CombatTrackingDB.Settings ~= nil and CombatTrackingDB.Settings[settingName] ~= nil) then 
-		return CombatTrackingDB.Settings[settingName]
-	end
+	return CombatTrackingDB.Settings[settingName]
 end
 
 local function SetSetting(settingName, value)
-	if (CombatTrackingDB.Settings == nil) then 
-		CombatTrackingDB.Settings = {}
-	end
-	
 	CombatTrackingDB.Settings[settingName] = value
 end
 
@@ -142,16 +160,12 @@ local function SetVisible(target, value)
 end
 
 local function FrameShouldBeVisible(frame, frameTarget)
-	if (not UIParent:IsVisible()) then -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
-		return false
-	end
-
-	if GetFrameHidden(frame) then 
-		return false 
-	end
 	
-	if (not UnitExists(frameTarget)) then
-		return false
+	if not UIParent:IsVisible() -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
+	or GetFrameHidden(frame)
+	or not UnitExists(frameTarget)
+	or UnitIsDead(frameTarget)
+		then return false
 	end
 	
 	local invertedLogic = GetSetting(Settings.Setting_Inverted)
@@ -165,7 +179,7 @@ end
 
 local function SaveFrame(item)
 	if item ~= nil then
-		local target = item.ParentTargetFrame
+		local target = item.TargetType
 		local point, relativeTo, relativePoint, xOfs, yOfs = item:GetPoint(n)
 	
 		local frameInfo = CombatTrackingDB[target] or {}
@@ -174,9 +188,10 @@ local function SaveFrame(item)
 		frameInfo.point = point
 		frameInfo.relativePoint = nil
 		frameInfo.hidden = GetFrameHidden(item)
+		frameInfo.useSound = GetFrameUseSound(item)
 		
 		if (relativeTo ~= nil) then
-			local parentFrameInfo = Find(itemsDefaultLocations, function(x) return x.parentFrame == relativeTo end)
+			local parentFrameInfo = Find(targetsDefaultSettings, function(x) return x.parentFrame == relativeTo end)
 			
 			if parentFrameInfo ~= nil then
 				frameInfo.point = "Left"
@@ -208,20 +223,23 @@ local function UserAttemptsToSetScale(scale)
 end
 
 local function ToggleHideFrame(frameTargetName)
-	local frame = Find(ctFrames, function(item) if CompareIgnoreCase(item.ParentTargetFrame, frameTargetName) then return true end end)
-	if frame ~= nil then 
-		SetFrameHidden(frame, not GetFrameHidden(frame))
-		SaveFrame(frame)
-	else
-		Print("No such frame. Type /ct showtext to see framenames")
-	end
+	local frame = Find(ctFrames, function(item) return CompareIgnoreCase(item.TargetType, frameTargetName) end)
+	SetFrameHidden(frame, not GetFrameHidden(frame))
+	SaveFrame(frame)
 end
 
 local function OnMouseDown(self,button)
 	if button == "LeftButton" then 
 		self:StartMoving()
 	elseif button == "RightButton" then
-		ToggleHideFrame(self.ParentTargetFrame)
+		if (IsLeftControlKeyDown()) then
+			if (not GetFrameHidden(self)) then
+				SetFrameUseSound(self, not GetFrameUseSound(self))
+				SaveFrame(frame)
+			end
+		else
+			ToggleHideFrame(self.TargetType)
+		end
 	end
 end
 
@@ -258,20 +276,24 @@ local function CreateCTFrame(parentFrameInfo, target)
 	frame.t=frame:CreateTexture(nil,BORDER)
 	frame:Hide()
 	
-	-- custom
-	SetFrameHidden(frame, false)
-	
 	frame.t:SetTexture(GetSetting(Settings.Setting_Texture))
 	frame:SetScale(GetSetting(Settings.Setting_Scale))
 	
-	if target ~= nil then
-		local fontString = frame:CreateFontString(nil,"ARTWORK")
-		fontString:SetFont("Fonts\\ARIALN.ttf", 13, "OUTLINE")
-		fontString:SetPoint("CENTER",0,0)
-		fontString:SetText(target)
-		fontString:Hide()
-		frame.text = fontString
-	end
+	local targetText = frame:CreateFontString(nil,"ARTWORK")
+	targetText:SetFont("Fonts\\ARIALN.ttf", 10, "OUTLINE")
+	targetText:SetPoint("CENTER",0,3)
+	targetText:SetText(target)
+	targetText:Hide()
+	frame.targetText = targetText
+	
+	local musicText = frame:CreateFontString(nil,"ARTWORK")
+	musicText:SetFont("Fonts\\ARIALN.ttf", 10, "OUTLINE")
+	musicText:SetPoint("CENTER",0, -6)
+	musicText:SetText("(no sound)")
+	musicText:Hide()
+	frame.musicText = musicText
+	
+	SetFrameHidden(frame, false)
 	
 	return frame
 end
@@ -279,7 +301,7 @@ end
 local function UpdateItem(target)
 	for i = 1, #ctFrames do 
 		local itemToUpdate = ctFrames[i]
-		if (itemToUpdate.ParentTargetFrame == target) then
+		if (itemToUpdate.TargetType == target) then
 			table.remove(ctFrames, i)
 			itemToUpdate:Hide()
 			break
@@ -291,15 +313,17 @@ end
 
 local function SetTextVisibility(value)
 	for i = 1, #ctFrames do
-		SetVisible(ctFrames[i].text, value)
+		SetVisible(ctFrames[i].targetText, value)
+		SetVisible(ctFrames[i].musicText, value)
 	end
 end
 
 local function CreateDefault(itemName, setPoints)
-	local parentFrameInfo = Find(itemsDefaultLocations, function(value, index) return CompareIgnoreCase(index, itemName) end)
+	local parentFrameInfo = Find(targetsDefaultSettings, function(value, index) return CompareIgnoreCase(index, itemName) end)
 	
 	local frame = CreateCTFrame(parentFrameInfo, itemName)
-	frame.ParentTargetFrame = itemName
+	frame.TargetType = itemName
+	SetFrameUseSound(frame, parentFrameInfo.useSound)
 	
 	if setPoints == true then
 		if (parentFrameInfo.parentFrame ~= nil) then
@@ -318,14 +342,15 @@ local function LoadFrame(itemName)
 	if (fi ~= nil) then
 		local frame = CreateDefault(itemName)
 		SetFrameHidden(frame, fi.hidden)
+		SetFrameUseSound(frame, fi.useSound)
 		
 		if fi.relativePoint ~= nil then 
-			frame:SetPoint(fi.point, itemsDefaultLocations[itemName].parentFrame, fi.relativePoint, fi.xOfs, fi.yOfs)
+			frame:SetPoint(fi.point, targetsDefaultSettings[itemName].parentFrame, fi.relativePoint, fi.xOfs, fi.yOfs)
 		else
 			frame:SetPoint(fi.point, fi.xOfs, fi.yOfs)
 		end
-		frame.t:SetAllPoints()
 		
+		frame.t:SetAllPoints()
 		return frame
 	end
 end
@@ -356,9 +381,10 @@ local function Init()
 	InitSetting(Settings.Setting_ShowTextAlways, false)
 	InitSetting(Settings.Setting_Scale, 1)
 	InitSetting(Settings.Setting_Texture, textureList[1])
-	local s = InitSetting(Settings.Setting_Inverted, false)
+	InitSetting(Settings.Setting_Inverted, false)
+	InitSetting(Settings.Setting_Music, true)
 	
-	for targetName, frameInfo in pairs(itemsDefaultLocations) do
+	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
 		if item == nil then item = CreateDefault(targetName, true) end
@@ -393,7 +419,7 @@ local function ToggleLock()
 	if (framesLocked) then
 		PrintMessage("Frames locked")
 	else
-		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide")
+		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide or ctrl + right click to toggle sound setting")
 	end
 end
 
@@ -412,10 +438,11 @@ local function HandleSlashCommand(cmd)
 		if (command == "LOCK") then ToggleLock()
 		elseif (command == "RESET") then Reset()
 		elseif (command == "SHOWTEXT") then ToggleShowText()
-		elseif (command == "HIDE" and cmdTable[2] ~= nil) then ToggleHideFrame(cmdTable[2])
 		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then UserAttemptsToSetScale(cmdTable[2])
 		elseif (command == "TEXTURE") then UseNextTexture()
 		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
+		elseif (command == "MUSIC") then InvertSetting(Settings.Setting_Music)
+		
 		else PrintHelp() end
 	else
 		PrintHelp()
@@ -423,20 +450,52 @@ local function HandleSlashCommand(cmd)
 end
 
 local function OnUpdate(self)
-	if isUpdateRequired then
-		 for i = 1, #ctFrames do
-			local frame = ctFrames[i]
-			if frame ~= nil then
-				SetVisible(frame, FrameShouldBeVisible(frame, frame.ParentTargetFrame))
+	if not isUpdateRequired then return end
+	
+	for i = 1, #ctFrames do
+		local frame = ctFrames[i]
+		if frame ~= nil then
+			if (not GetFrameHidden(frame)) then
+				if (FrameShouldBeVisible(frame, frame.TargetType)) then
+					if (not frame:IsVisible()) then
+						frame:Show()
+						
+						if (frame.New == false) then
+							if GetFrameUseSound(frame) and GetSetting(Settings.Setting_Music) then
+								PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+							end
+						end
+					end
+				else
+					frame:Hide()
+				end
+				
+				frame.New = false
 			end
 		end
 	end
+	
 end
+
+local function SetFrameAsNew(frameTarget)
+	local frame = Find(ctFrames, function(x) return x.TargetType == frameTarget end)
+	frame.New = true
+end
+
+local eventHandlers =
+{
+	["VARIABLES_LOADED"] = Init,
+	["PLAYER_FOCUS_CHANGED"] = function() SetFrameAsNew("Focus") end,
+	["PLAYER_TARGET_CHANGED"] = function() SetFrameAsNew("Target") end,
+}
 
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
 controlFrame:RegisterEvent("VARIABLES_LOADED")
-controlFrame:SetScript("OnEvent", function(self,event) if event == "VARIABLES_LOADED" then Init() end end)
+controlFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
+controlFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+
+controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() end)
 PrintGreetings()
