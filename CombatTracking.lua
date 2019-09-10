@@ -496,7 +496,9 @@ local function OnUpdate(self)
 					frame:Hide()
 				end
 				
-				frame.New = false
+				if (UnitExists(frame.TargetType)) then
+					frame.New = false
+				end
 			end
 		end
 	end
