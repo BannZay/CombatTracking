@@ -14,6 +14,7 @@ local textureSize = 40
 local framesIsLocked = true
 local isUpdateRequired = true
 local frameNoSoundNote = "(no sound)"
+
 local ctToolTipText =
 {
 	"Left click - drag frame",
@@ -30,11 +31,11 @@ local targetsDefaultSettings =
 	["Party2"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame2, relativePoint = "Right", useSound = false},
 	["Party3"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame3, relativePoint = "Right", useSound = false},
 	["Party4"] = {point = "Left", x = -5, y = 5, parentFrame = PartyMemberFrame4, relativePoint = "Right", useSound = false},
-	["Arena1"] = {point = "TOP", x = (textureSize + 5) * -2, y = 0, parentFrame = nil, useSound = true, attachableToGladius = true},
-	["Arena2"] = {point = "TOP", x = (textureSize + 5) * -1, y = 0, parentFrame = nil, useSound = true, attachableToGladius = true},
-	["Arena3"] = {point = "TOP", x = (textureSize + 5) * 0, y = 0, parentFrame = nil, useSound = true, attachableToGladius = true},
-	["Arena4"] = {point = "TOP", x = (textureSize + 5) * 1, y = 0, parentFrame = nil, useSound = true, attachableToGladius = true},
-	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil, useSound = true, attachableToGladius = true},
+	["Arena1"] = {point = "TOP", x = (textureSize + 5) * -2, y = 0, parentFrame = nil, useSound = true},
+	["Arena2"] = {point = "TOP", x = (textureSize + 5) * -1, y = 0, parentFrame = nil, useSound = true},
+	["Arena3"] = {point = "TOP", x = (textureSize + 5) * 0, y = 0, parentFrame = nil, useSound = true},
+	["Arena4"] = {point = "TOP", x = (textureSize + 5) * 1, y = 0, parentFrame = nil, useSound = true},
+	["Arena5"] = {point = "TOP", x = (textureSize + 5) * 2, y = 0, parentFrame = nil, useSound = true},
 }
 
 local textures =
@@ -208,6 +209,53 @@ local function SetFramesTexture(textureId)
 		SetFramesTexture(1)
 	end
 end
+
+
+---------------------------------------------------------------- Gladius ----------------------------------------------------------------
+
+
+local function ShowGladius(value)
+	if Gladius ~= nil then
+		local gladiusIsVisible = Gladius.frame ~= nil and Gladius.frame:IsShown()
+		
+		if value and not gladiusIsVisible then
+			Gladius:ToggleFrame(5)
+		elseif not value and gladiusIsVisible then
+			Gladius:HideFrame()
+		end
+	end
+end
+
+local function GladiusFrameAppeared(arg1)
+	for i=1,5 do
+		local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
+		local f = Find(ctFrames, function(x) return x.TargetType == "Arena"..i end)
+		
+		if (gladiusButtonFrame ~= nil) then
+			-- Setup our frame
+			f:ClearAllPoints()
+			f:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
+			f:SetWidth(gladiusButtonFrame.classIcon:GetWidth())
+			f:SetHeight(gladiusButtonFrame.classIcon:GetHeight())
+			f.t:SetAllPoints()
+			
+			-- Modify gladius frames
+			gladiusButtonFrame.drCooldownFrame:ClearAllPoints()
+			gladiusButtonFrame.drCooldownFrame:SetPoint("TopRight", f, "TopLeft")
+			
+			f:EnableMouse(false)
+			SetVisible(f, arg1)
+		end
+	end
+end
+
+local function OnGladiusFrameAppeared(arg1)
+	if GetSetting(Settings.Setting_AttachedToGladius) then
+		GladiusFrameAppeared(arg1)
+	end
+end
+
+
 ---------------------------------------------------------------- Frames management ----------------------------------------------------------------
 
 
@@ -317,10 +365,6 @@ local function CreateCTFrame(parentFrameInfo, target)
 	
 	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
 	
-	if (frameDefaultSettings ~= nil and frameDefaultSettings.attachableToGladius) then
-		frame.attachableToGladius = true
-	end
-	
 	frame.TargetType = target
 	
 	return frame
@@ -377,20 +421,17 @@ local function SetTextVisibility(targetVisibility, musicVisibility)
 end
 
 local function SetLock(value)
+	
+	if GetSetting(Settings.Setting_AttachedToGladius) then
+		ShowGladius(not value)
+	end
+	
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
 		
-		if (GetSetting(Settings.Setting_AttachedToGladius) and frame.attachableToGladius) then
-			SetVisible(frame, not value and frame.attachedToGladius)
-		else
-			frame:EnableMouse(not value)
-			
-			if (not value) then 
-				frame:Show()
-			elseif GetFrameHidden(frame) then
-				frame:Hide()
-			end
-		end
+		frame:EnableMouse(not value and frame.allowDrag ~= false)
+		
+		SetVisible(frame, not value)
 	end
 	
 	if (value) then
@@ -409,35 +450,20 @@ local function UpdateLock()
 	SetLock(locked)
 end
 
-
----------------------------------------------------------------- Hooks ----------------------------------------------------------------
-
-
-local function AttachToInitializedGladius(arg1)
-	if (GetSetting(Settings.Setting_AttachedToGladius)) then
-		for i=1,5 do
-			local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
+local function SetAttachedToGladius(value)
+	SetSetting(Settings.Setting_AttachedToGladius, value)
+	
+	if IsAddOnLoaded("Gladius") then
+		 if value then
+			hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
+			hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
 			
-			if (gladiusButtonFrame ~= nil) then
-				-- Setup our frame
-				local f = Find(ctFrames, function(x) return x.TargetType == "Arena"..i end)
-				if (not f.attachToGladius) then
-					
-					f:ClearAllPoints()
-					f:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-					f:SetWidth(gladiusButtonFrame.classIcon:GetWidth())
-					f:SetHeight(gladiusButtonFrame.classIcon:GetHeight())
-					f.t:SetAllPoints()
-					f.attachedToGladius = true
-					
-					-- Modify gladius frames
-					gladiusButtonFrame.drCooldownFrame:ClearAllPoints()
-					gladiusButtonFrame.drCooldownFrame:SetPoint("TopRight", f, "TopLeft")
-					
-					f:EnableMouse(false)
-					SetVisible(f, arg1)
-				end
+			for i=1,5 do
+				f = Find(ctFrames, function(x) return x.TargetType == "Arena"..i  end)
+				f.allowDrag = false
 			end
+		else
+			ReloadUI()
 		end
 	end
 end
@@ -471,10 +497,6 @@ local function Init()
 	InitSetting(Settings.Setting_PlayMusic, true)
 	InitSetting(Settings.Setting_AttachedToGladius, true)
 	
-	if (not IsAddOnLoaded("Gladius")) then
-		SetSetting(Settings.Setting_AttachedToGladius, false)
-	end
-	
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
@@ -484,10 +506,7 @@ local function Init()
 	
 	SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways))
 	
-	if (Gladius ~= nil) then
-		hooksecurefunc(Gladius, "JoinedArena", AttachToInitializedGladius)
-		hooksecurefunc(Gladius, "ToggleFrame", AttachToInitializedGladius)
-	end
+	SetAttachedToGladius(GetSetting(Settings.Setting_AttachedToGladius))
 	
 	SetLock(true)
 end
@@ -519,15 +538,6 @@ local function ToggleShowText()
 	UpdateLock()
 end
 
-local function ToggleLock()
-	SetLock(not framesIsLocked)
-	if (framesIsLocked) then
-		PrintMessage("Frames locked")
-	else
-		PrintMessage("Frames unlocked. Drag them to change location or right click on them to hide or ctrl + right click to toggle sound setting")
-	end
-end
-
 local function Reset()
 	CombatTrackingDB = {}
 	
@@ -540,19 +550,7 @@ local function Reset()
 	end
 	
 	Init()
-end
-
-local function ToggleAttachToGladius()
-	if (not Settings.Setting_AttachedToGladius) then
-		if (not IsAddOnLoaded("Gladius")) then
-			Print("Gladius is not load")
-		end
-	else
-		InvertSetting(Settings.Setting_AttachedToGladius)
-		UpdateLock()
-	end
-	
-	ReloadUI() -- worst but safe way to solve possible problems
+	SetLock(false)
 end
 
 local function HandleSlashCommand(cmd)
@@ -566,14 +564,14 @@ local function HandleSlashCommand(cmd)
 	
 	local command = cmdTable[1]
 	if command ~= nil then
-		if (command == "LOCK") then ToggleLock()
+		if (command == "LOCK") then SetLock(not framesIsLocked)
 		elseif (command == "RESET") then Reset()
 		elseif (command == "TEXT") then ToggleShowText()
 		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then UserAttemptsToSetScale(cmdTable[2])
 		elseif (command == "TEXTURE" and (cmdTable[2] == nil or tonumber(cmdTable[2]) ~= nil)) then UseNextTexture(tonumber(cmdTable[2]))
 		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
 		elseif (command == "MUSIC") then InvertSetting(Settings.Setting_PlayMusic)
-		elseif (command == "GLADIUS") then ToggleAttachToGladius()
+		elseif (command == "GLADIUS") then SetAttachedToGladius(not GetSetting(Settings.Setting_AttachedToGladius)) UpdateLock()
 		else PrintHelp() end
 	else
 		PrintHelp()
