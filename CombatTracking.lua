@@ -587,7 +587,9 @@ local function FrameShouldBeVisible(frame, frameTarget)
 	if not UIParent:IsVisible() -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
 	or GetFrameHidden(frame)
 	or not UnitExists(frameTarget)
-	or UnitIsDead(frameTarget)
+	or UnitHealth(frameTarget) == 0 --UnitIsDead(frameTarget) --not work if target far enough
+	or UnitIsGhost(frameTarget)
+	or UnitIsConnected(frameTarget) == nil
 		then return false
 	end
 	
