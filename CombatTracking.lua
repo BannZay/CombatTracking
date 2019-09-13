@@ -1,19 +1,16 @@
-local Settings =
-{
-	Setting_ShowTextAlways = "showTextAlways",
-	Setting_Scale = "scale",
-	Setting_TextureId = "textureId",
-	Setting_Inverted = "inverted",
-	Setting_PlayMusic = "playMusic",
-	Setting_AttachedToGladius = "attachedToGladius"
-}
+local Setting_Lock 				= "lock"
+local Setting_ShowTextAlways 	= "showTextAlways"
+local Setting_Scale 			= "scale"
+local Setting_TextureId 		= "textureId"
+local Setting_Inverted 			= "inverted"
+local Setting_PlaySounds 		= "playSounds"
+local Setting_AttachedToGladius = "attachedToGladius"
 
-CombatTrackingDB = CombatTrackingDB or {}
+CombatTrackingDB = nil
+local Settings = nil
+
 local ctFrames = {}
 local textureSize = 40
-local framesIsLocked = true
-local isUpdateRequired = true
-local frameNoSoundNote = "(no sound)"
 
 local ctToolTipText =
 {
@@ -82,70 +79,34 @@ end
 ---------------------------------------------------------------- DB settings ----------------------------------------------------------------
 
 
-local function GetSetting(settingName)
-	return CombatTrackingDB.Settings[settingName]
-end
-
 local function SetSetting(settingName, value)
-	CombatTrackingDB.Settings[settingName] = value
+	Settings[settingName] = value
 end
 
 local function InitSetting(settingName, defaultValue)
-	local setting = GetSetting(settingName)
-	if (setting == nil) then
+	local setting2 = Settings[settingName]
+	if (setting2 == nil) then
 		SetSetting(settingName, defaultValue)
 	end
 	
-	return GetSetting(settingName)
-end
-
-local function InvertSetting(settingName, defaultValue)
-	local setting = GetSetting(settingName)
-	local newSetting
-	if setting ~= nil then 
-		newSetting = not setting 
-	else 
-		newSetting = defaultValue 
-	end
-	
-	SetSetting(settingName, newSetting)
-	return newSetting
+	return Settings[settingName]
 end
 
 
--------------------------------- Printing --------------------------------
+---------------------------------------------------------------- Printing ----------------------------------------------------------------
 
 
 local function Print(text)
 	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
 end
 
-local function PrintMessage(text)
-	Print("CombatTracking - " .. text)
-end
-
-local function PrintHelp()
-	Print("----------------------------------------------------------------------")
-	Print("CombatTracking settings: Type '/combatTracking <option>' or '/ct <option>'")
-	Print("Options list:")
-	Print("lock - "..Switch(framesIsLocked, "unlock", "lock").." frames")
-	Print("text - "..Switch(GetSetting(Settings.Setting_ShowTextAlways), "hide", "show").." frames text")
-	Print("scale <scale> - change scale from ".. GetSetting(Settings.Setting_Scale) .." to <scale>")
-	Print("music - "..Switch(GetSetting(Settings.Setting_PlayMusic), "mute", "unmute").." music")
-	Print("texture <optionalTextureId> - use another texture. Current TextureId = "..GetSetting(Settings.Setting_TextureId))
-	Print("invert - show frame when unit "..Switch(GetSetting(Settings.Setting_Inverted), "not in", "in").." combat")
-	Print("gladius - "..Switch(GetSetting(Settings.Setting_AttachedToGladius), "do not", "do").." intergrate arena target frames into gladius")
-	Print("reset - reset all settings to defaults")
-	Print("----------------------------------------------------------------------")
-end
-
-local function PrintGreetings()
-	Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
-end
-
 
 ---------------------------------------------------------------- Frame settings ----------------------------------------------------------------
 
+
+local function GetFrameByTarget(targetType)
+	return Find(ctFrames, function(x) return x.TargetType == targetType end)
+end
 
 local function SetFrameUseSound(frame, value)
 	frame.useSound = value
@@ -153,7 +114,7 @@ local function SetFrameUseSound(frame, value)
 	if (value) then
 		frame.musicText:SetText(nil)
 	else
-		frame.musicText:SetText(frameNoSoundNote)
+		frame.musicText:SetText("(no sound)")
 	end
 end
 
@@ -177,22 +138,13 @@ local function GetFrameHidden(frame)
 	return frame.CTHidden == true
 end
 
-local function SetVisible(target, value)
+local function SetVisibility(target, value)
 	if target ~= nil then
 		if value then 
 			target:Show()
 		else
 			target:Hide()
 		end
-	end
-end
-
-local function SetFramesScale(scale)
-	SetSetting(Settings.Setting_Scale, scale)
-
-	for i = 1, #ctFrames do
-		local ctFrame = ctFrames[i]
-		ctFrame:SetScale(scale)
 	end
 end
 
@@ -203,8 +155,6 @@ local function SetFramesTexture(textureId)
 		for i = 1, #ctFrames do
 			ctFrames[i].t:SetTexture(texture)
 		end
-		
-		SetSetting(Settings.Setting_TextureId, textureId)
 	else
 		SetFramesTexture(1)
 	end
@@ -229,7 +179,7 @@ end
 local function GladiusFrameAppeared(arg1)
 	for i=1,5 do
 		local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
-		local f = Find(ctFrames, function(x) return x.TargetType == "Arena"..i end)
+		local f = GetFrameByTarget("Arena"..i)
 		
 		if (gladiusButtonFrame ~= nil) then
 			-- Setup our frame
@@ -244,13 +194,13 @@ local function GladiusFrameAppeared(arg1)
 			gladiusButtonFrame.drCooldownFrame:SetPoint("TopRight", f, "TopLeft")
 			
 			f:EnableMouse(false)
-			SetVisible(f, arg1)
+			SetVisibility(f, arg1)
 		end
 	end
 end
 
 local function OnGladiusFrameAppeared(arg1)
-	if GetSetting(Settings.Setting_AttachedToGladius) then
+	if Settings[Setting_AttachedToGladius] then
 		GladiusFrameAppeared(arg1)
 	end
 end
@@ -259,17 +209,12 @@ end
 ---------------------------------------------------------------- Frames management ----------------------------------------------------------------
 
 
-local function SetFrameAsNew(frameTarget)
-	local frame = Find(ctFrames, function(x) return x.TargetType == frameTarget end)
-	frame.New = true
-end
-
 local function SaveFrame(item)
 	if item ~= nil then
 		local target = item.TargetType
 		local point, relativeTo, relativePoint, xOfs, yOfs = item:GetPoint(n)
 	
-		local frameInfo = CombatTrackingDB[target] or {}
+		local frameInfo = Settings[target] or {}
 		frameInfo.xOfs = xOfs
 		frameInfo.yOfs = yOfs
 		frameInfo.point = point
@@ -300,7 +245,7 @@ local function OnMouseDown(self,button)
 				SaveFrame(self)
 			end
 		else
-			local frame = Find(ctFrames, function(item) return CompareIgnoreCase(item.TargetType, self.TargetType) end)
+			local frame = GetFrameByTarget(self.TargetType)
 			SetFrameHidden(frame, not GetFrameHidden(frame))
 			SaveFrame(frame)
 		end
@@ -334,6 +279,7 @@ end
 
 local function CreateCTFrame(parentFrameInfo, target)
 	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
+	frame.New = true
 	frame:SetSize(textureSize, textureSize)
 	frame:SetFrameStrata("MEDIUM")
 	frame:SetFrameLevel(30)
@@ -341,11 +287,11 @@ local function CreateCTFrame(parentFrameInfo, target)
 	frame:SetClampedToScreen(true)
 	frame:SetScript("OnMouseDown", OnMouseDown)
 	frame:SetScript("OnMouseUp",function(self,button) if button == "LeftButton" then self:StopMovingOrSizing() SaveFrame(self) end end)
-	frame.t=frame:CreateTexture(nil,BORDER)
 	frame:Hide()
 	
-	frame.t:SetTexture(textures[GetSetting(Settings.Setting_TextureId)])
-	frame:SetScale(GetSetting(Settings.Setting_Scale))
+	frame.t=frame:CreateTexture(nil,BORDER)
+	frame.t:SetTexture(textures[Settings[Setting_TextureId]])
+	frame:SetScale(Settings[Setting_Scale])
 	
 	local targetText = frame:CreateFontString(nil,"ARTWORK")
 	targetText:SetFont("Fonts\\ARIALN.ttf", 10, "OUTLINE")
@@ -415,14 +361,14 @@ end
 
 local function SetTextVisibility(targetVisibility, musicVisibility)
 	for i = 1, #ctFrames do
-		SetVisible(ctFrames[i].targetText, targetVisibility)
-		SetVisible(ctFrames[i].musicText, musicVisibility)
+		SetVisibility(ctFrames[i].targetText, targetVisibility)
+		SetVisibility(ctFrames[i].musicText, musicVisibility)
 	end
 end
 
 local function SetLock(value)
 	
-	if GetSetting(Settings.Setting_AttachedToGladius) then
+	if Settings[Setting_AttachedToGladius] then
 		ShowGladius(not value)
 	end
 	
@@ -431,40 +377,13 @@ local function SetLock(value)
 		
 		frame:EnableMouse(not value and frame.allowDrag ~= false)
 		
-		SetVisible(frame, not value)
+		SetVisibility(frame, not value)
 	end
 	
 	if (value) then
-		SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways), false)
+		SetTextVisibility(Settings[Setting_ShowTextAlway], false)
 	else
 		SetTextVisibility(true, true)
-	end
-	
-	isUpdateRequired = value
-	framesIsLocked = value
-end
-
-local function UpdateLock()
-	local locked = framesIsLocked
-	SetLock(not locked)
-	SetLock(locked)
-end
-
-local function SetAttachedToGladius(value)
-	SetSetting(Settings.Setting_AttachedToGladius, value)
-	
-	if IsAddOnLoaded("Gladius") then
-		 if value then
-			hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
-			hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
-			
-			for i=1,5 do
-				f = Find(ctFrames, function(x) return x.TargetType == "Arena"..i  end)
-				f.allowDrag = false
-			end
-		else
-			ReloadUI()
-		end
 	end
 end
 
@@ -486,16 +405,21 @@ local function UpdateItem(target)
 end
 
 local function Init()
+	CombatTrackingDB = CombatTrackingDB or {Settings = {}}
+	
 	if CombatTrackingDB.Settings == nil then 
 		CombatTrackingDB.Settings = {}
 	end
 	
-	InitSetting(Settings.Setting_ShowTextAlways, false)
-	InitSetting(Settings.Setting_Scale, 1)
-	InitSetting(Settings.Setting_TextureId, 1)
-	InitSetting(Settings.Setting_Inverted, false)
-	InitSetting(Settings.Setting_PlayMusic, true)
-	InitSetting(Settings.Setting_AttachedToGladius, true)
+	Settings = CombatTrackingDB.Settings
+	
+	InitSetting(Setting_Lock, true)	
+	InitSetting(Setting_ShowTextAlways, false)
+	InitSetting(Setting_Scale, 1)
+	InitSetting(Setting_TextureId, 1)
+	InitSetting(Setting_Inverted, false)
+	InitSetting(Setting_PlaySounds, true)
+	InitSetting(Setting_AttachedToGladius, true)
 	
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
@@ -504,39 +428,24 @@ local function Init()
 		UpdateItem(item)
 	end
 	
-	SetTextVisibility(GetSetting(Settings.Setting_ShowTextAlways))
-	
-	SetAttachedToGladius(GetSetting(Settings.Setting_AttachedToGladius))
-	
-	SetLock(true)
-end
-
-
----------------------------------------------------------------- User Command Handlers ----------------------------------------------------------------
-
-
-local function UserAttemptsToSetScale(scale)
-	local number = tonumber(scale)
-	
-	if (number ~= nil and number >= 0) then
-		SetFramesScale(number)
-	else
-		PrintMessage("Scale must be greater then zero")
-	end
-end
-
-local function UseNextTexture(optionalId)
-	if (optionalId == nil) then
-		optionalId = GetSetting(Settings.Setting_TextureId) + 1
+	if (Settings[Setting_AttachedToGladius]) then
+		if IsAddOnLoaded("Gladius") then
+			hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
+			hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
+			
+			for i=1,5 do
+				f = GetFrameByTarget("Arena"..i)
+				f.allowDrag = false
+			end
+		end
 	end
 	
-	SetFramesTexture(optionalId)
+	SetLock(Settings[Setting_Lock])
 end
 
-local function ToggleShowText()
-	InvertSetting(Settings.Setting_ShowTextAlways, true)
-	UpdateLock()
-end
+
+---------------------------------------------------------------- Blizzard options menu ----------------------------------------------------------------
+
 
 local function Reset()
 	CombatTrackingDB = {}
@@ -550,40 +459,159 @@ local function Reset()
 	end
 	
 	Init()
-	SetLock(false)
 end
 
-local function HandleSlashCommand(cmd)
-	cmd = string.upper(cmd)
-	
-	local cmdTable = {}
-	
-	for cmdItem in gmatch(cmd, "[^ ]+") do
-		tinsert(cmdTable, cmdItem)
+local function SetFramesScale(scale)
+	for i = 1, #ctFrames do
+		local ctFrame = ctFrames[i]
+		ctFrame:SetScale(scale)
 	end
-	
-	local command = cmdTable[1]
-	if command ~= nil then
-		if (command == "LOCK") then SetLock(not framesIsLocked)
-		elseif (command == "RESET") then Reset()
-		elseif (command == "TEXT") then ToggleShowText()
-		elseif (command == "SCALE" and tonumber(cmdTable[2]) ~= nil) then UserAttemptsToSetScale(cmdTable[2])
-		elseif (command == "TEXTURE" and (cmdTable[2] == nil or tonumber(cmdTable[2]) ~= nil)) then UseNextTexture(tonumber(cmdTable[2]))
-		elseif (command == "INVERT") then InvertSetting(Settings.Setting_Inverted)
-		elseif (command == "MUSIC") then InvertSetting(Settings.Setting_PlayMusic)
-		elseif (command == "GLADIUS") then SetAttachedToGladius(not GetSetting(Settings.Setting_AttachedToGladius)) UpdateLock()
-		else PrintHelp() end
-	else
-		PrintHelp()
+end
+
+local function AttachedToGladiusChanged()
+	if (Settings[Setting_Lock] == true and Settings[Setting_AttachedToGladius] == false) then
+		ShowGladius(false)
 	end
+end
+
+local function SuppressFirstSoundTrigger()
+	for i=1,#ctFrames do
+		ctFrames[i].New = true
+	end
+end
+
+local onOptionChanged = 
+{
+	[Setting_Lock] = SetLock,
+	[Setting_ShowTextAlways] = function(value) SetTextVisibility(not Settings[Setting_Lock] or value, not Settings[Setting_Lock]) end,
+	[Setting_AttachedToGladius] = AttachedToGladiusChanged,
+	[Setting_Inverted] = SuppressFirstSoundTrigger,
+	[Setting_PlaySounds] = nil,
+	[Setting_Scale] = SetFramesScale,
+	[Setting_TextureId] = SetFramesTexture
+}
+
+
+local function ChangeSetting(SettingName, value)
+	if (Settings[SettingName] ~= value) then
+		SetSetting(SettingName, value)
+		
+		handler = Find(onOptionChanged, function(value, index) return index == SettingName end)
+		if handler ~= nil then
+			handler(value)
+		end
+	end
+end
+
+local function SetOption(info, value)
+	local key = info.arg or info[#info]
+	ChangeSetting(key, value)
+end
+
+local function GetOption(info)
+	local key = info.arg or info[#info]
+	return Settings[key]
+end
+
+local function BuildBlizzardOptions()
+
+	local options = 
+	{
+		type = "group",
+		name = "CombatTracking",
+		plugins = {},
+		get=GetOption,
+		set=SetOption,
+		args = {}
+	}
+
+	options.args[Setting_Lock] = 
+	{
+		type = "toggle",
+		name = "Lock",
+		desc = "lock frames if checked",
+		order=1,
+	}
+
+	options.args[Setting_ShowTextAlways] = 
+	{
+		type = "toggle",
+		name = "Show text",
+		desc = "",
+		order=2,
+	}
+
+	options.args[Setting_Inverted] =
+	{
+		type = "toggle",
+		name = "Inverted",
+		desc = "Checked - show if target not combat. Otherwise - show if target not in combat",
+		order=3,
+	}
+	
+	options.args[Setting_PlaySounds] =
+	{
+		type = "toggle",
+		name = "Play sounds",
+		desc = "",
+		order=4,
+	}
+	
+	options.args[Setting_Scale] = 
+	{
+		type="range",
+		name="Frames scale",
+		desc="",
+		min=.1,
+		max=5,
+		step=.01,
+		order=5,
+	}
+	
+	options.args[Setting_TextureId] = 
+	{
+		type="range",
+		name="Frames texture",
+		desc="",
+		min=1,
+		max=4,
+		step=1,
+		order=6,
+	}
+	
+	options.args.Reset = 
+	{
+		type="execute",
+		name="Reset settings to defaults",
+		order=7,
+		func=Reset 
+	}
+	
+	options.args[Setting_AttachedToGladius] =
+	{
+		type = "toggle",
+		name = "Integrate into gladius",
+		desc = "Type /reload to apply changes", --fix it
+		order=99,
+	}
+
+	return options
 end
 
 
 ---------------------------------------------------------------- Main ----------------------------------------------------------------
 
 
-local function FrameShouldBeVisible(frame, frameTarget)
+local function FrameShouldBeUpdated(frame)
+	if (GetFrameHidden(frame) == true) then
+		return false
+	end
 	
+	return true
+end
+
+local function FrameShouldBeVisible(frame)
+	local frameTarget = frame.TargetType
 	if not UIParent:IsVisible() -- we might use UIParent as parent of frames but it leads to problems with addons such as MoveAnything
 	or GetFrameHidden(frame)
 	or not UnitExists(frameTarget)
@@ -593,7 +621,7 @@ local function FrameShouldBeVisible(frame, frameTarget)
 		then return false
 	end
 	
-	local invertedLogic = GetSetting(Settings.Setting_Inverted)
+	local invertedLogic = Settings[Setting_Inverted]
 	
 	if UnitAffectingCombat(frameTarget) then
 		return invertedLogic
@@ -602,52 +630,65 @@ local function FrameShouldBeVisible(frame, frameTarget)
 	end
 end
 
+local function UpdateFrameCombatStatus(frame)
+	local newUnitInCombat = nil
+	if UnitExists(frame.TargetType) then
+		newUnitInCombat = UnitAffectingCombat(frame.TargetType)
+	end
+		
+	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
+		PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+	end
+	
+	frame.InCombat = newUnitInCombat
+end
+
+local function UpdateFrame(frame)
+	UpdateFrameCombatStatus(frame)
+	SetVisibility(frame, FrameShouldBeVisible(frame))
+end
+
 local function OnUpdate(self)
-	if not isUpdateRequired then return end
+	if not Settings[Setting_Lock] then return end
 	
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
-		if frame ~= nil then
-			if (not GetFrameHidden(frame)) then
-				if (FrameShouldBeVisible(frame, frame.TargetType)) then
-					if (not frame:IsVisible()) then
-						frame:Show()
-						
-						if (frame.New == false) then
-							if GetFrameUseSound(frame) and GetSetting(Settings.Setting_PlayMusic) then
-								PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
-							end
-						end
-					end
-				else
-					frame:Hide()
-				end
-				
-				if (UnitExists(frame.TargetType)) then
-					frame.New = false
-				end
-			end
+		if frame ~= nil and FrameShouldBeUpdated(frame) == true then
+			UpdateFrame(frame)
 		end
 	end
 end
 
+local function HandleSlashCommand(cmd)
+	cmd = string.upper(cmd)
+	
+	if cmd ~= nil then
+		if (cmd == "LOCK") then Settings[Setting_Lock] = not Settings[Setting_Lock] SetLock(Settings[Setting_Lock]) return end
+	end
+	
+	InterfaceOptionsFrame_OpenToCategory("CombatTracking")
+end
 
-local eventHandlers =
-{
-	["VARIABLES_LOADED"] = Init,
-	["PLAYER_FOCUS_CHANGED"] = function() SetFrameAsNew("Focus") end,
-	["PLAYER_TARGET_CHANGED"] = function() SetFrameAsNew("Target") end,
-}
 
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 SLASH_CombatTracking2 = "/combatTracking"
 SLASH_CombatTracking2 = "/cTracking"
+
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
 controlFrame:RegisterEvent("VARIABLES_LOADED")
 controlFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 controlFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
+local eventHandlers =
+{
+	["VARIABLES_LOADED"] = Init,
+	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
+	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
+}
 controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() end)
-PrintGreetings()
+
+LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
+LibStub("AceConfigDialog-3.0"):AddToBlizOptions("CombatTracking", "CombatTracking")
+Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
