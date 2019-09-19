@@ -149,6 +149,10 @@ local function Print(text)
 	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
 end
 
+local function PrintMessage(text)
+	ChatFrame1:AddMessage(string.format("Combat Tracking - %s", text), 0, 1, 0)
+end
+
 
 ---------------------------------------------------------------- Frame settings ----------------------------------------------------------------
 
@@ -229,18 +233,26 @@ local function GladiusFrameAppeared(arg1)
 	for i=1,5 do
 		local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
 		local f = GetFrameByTarget("Arena"..i)
-		
 		if (gladiusButtonFrame ~= nil) then
+		
 			-- Setup our frame
 			f:ClearAllPoints()
+			local size = gladiusButtonFrame.classIcon:GetHeight() 
 			f:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-			f:SetWidth(gladiusButtonFrame.classIcon:GetWidth())
-			f:SetHeight(gladiusButtonFrame.classIcon:GetHeight())
+			f:SetWidth(size)
+			f:SetHeight(size)
+			f:SetScale(Gladius.frame:GetScale())
 			f.t:SetAllPoints()
 			
-			-- Modify gladius frames
-			gladiusButtonFrame.drCooldownFrame:ClearAllPoints()
-			gladiusButtonFrame.drCooldownFrame:SetPoint("TopRight", f, "TopLeft")
+			-- move Gladius dr frame to prevent overlapping
+			local drFrame = gladiusButtonFrame.drCooldownFrame
+			if drFrame and drFrame:GetNumPoints() == 1 then -- if numpoints != 1 unknown gladius used, dont touch it then
+				local point, relativeTo, relativePoint, xOfs, yOfs = gladiusButtonFrame.drCooldownFrame:GetPoint(1)
+				if (string.sub(relativePoint,-4) == "LEFT") then
+					drFrame:ClearAllPoints()
+					drFrame:SetPoint("TopRight", f, "TopLeft")
+				end
+			end
 			
 			SetVisibility(f, arg1)
 		end
@@ -249,7 +261,10 @@ end
 
 local function OnGladiusFrameAppeared(arg1)
 	if Settings[Setting_AttachedToGladius] then
-		GladiusFrameAppeared(arg1)
+		local status, err = pcall(function() GladiusFrameAppeared(arg1) end)
+		if not status then
+			PrintMessage("This version of Gladius is not supported for integration yet")
+		end
 	end
 end
 
@@ -462,7 +477,7 @@ local function Init()
 	
 	Settings = CombatTrackingDB.Settings
 	
-	InitSetting(Setting_Lock, true)	
+	SetSetting(Setting_Lock, true)
 	InitSetting(Setting_ShowTextAlways, false)
 	InitSetting(Setting_Scale, 1)
 	InitSetting(Setting_TextureId, 1)
@@ -579,79 +594,79 @@ local function BuildBlizzardOptions()
 		type = "group",
 		name = "CombatTracking",
 		plugins = {},
-		get=GetOption,
-		set=SetOption,
+		get = GetOption,
+		set = SetOption,
 		args = {}
 	}
 
-	options.args[Setting_Lock] = 
+	options.args[Setting_Lock] = -- probably we should never store lock option
 	{
 		type = "toggle",
 		name = "Lock",
-		desc = "lock frames if checked",
-		order=1,
+		desc = "lock frames",
+		order = 1,
 	}
 
 	options.args[Setting_ShowTextAlways] = 
 	{
 		type = "toggle",
 		name = "Show text",
-		desc = "",
-		order=2,
+		desc = "Show text on frames(lock frames to see difference)",
+		order = 2,
 	}
 
 	options.args[Setting_Inverted] =
 	{
 		type = "toggle",
 		name = "Inverted",
-		desc = "Checked - show if target not combat. Otherwise - show if target not in combat",
-		order=3,
+		desc = "Show frames if target is not in combat. Otherwise - show when target is not in combat",
+		order = 3,
 	}
 	
 	options.args[Setting_PlaySounds] =
 	{
 		type = "toggle",
 		name = "Play sounds",
-		desc = "",
-		order=4,
+		desc = "Allow playing sounds",
+		order = 4,
 	}
 	
 	options.args[Setting_Scale] = 
 	{
-		type="range",
-		name="Frames scale",
-		desc="",
-		min=.1,
-		max=5,
-		step=.01,
-		order=5,
+		type = "range",
+		name = "Frames scale",
+		desc = "Does not affect arenaframes integrated into gladius",
+		min =.1,
+		max = 5,
+		step =.01,
+		order = 5,
 	}
 	
 	options.args[Setting_TextureId] = 
 	{
-		type="range",
-		name="Frames texture",
-		desc="",
-		min=1,
-		max=4,
-		step=1,
-		order=6,
+		type = "range",
+		name = "Frames texture",
+		desc = "",
+		min = 1,
+		max = 4,
+		step = 1,
+		order = 6,
 	}
 	
 	options.args.Reset = 
 	{
-		type="execute",
-		name="Reset settings to defaults",
-		order=7,
-		func=Reset 
+		type = "execute",
+		name = "Reset settings to defaults",
+		order = 7,
+		func = Reset 
 	}
 	
 	options.args[Setting_AttachedToGladius] =
 	{
 		type = "toggle",
 		name = "Integrate into gladius",
-		desc = "Type /reload to apply changes", --fix it
-		order=99,
+		desc = "Attach addon arenaframes to gladius arenaframes",
+		order = 99,
 	}
 
 	return options
