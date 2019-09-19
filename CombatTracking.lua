@@ -160,11 +160,11 @@ end
 
 
 local function Print(text)
-	ChatFrame1:AddMessage(string.format("%s", text), 0, 1, 0)
+	ChatFrame1:AddMessage(string.format("%s", text), 10, 20, 0)
 end
 
 local function PrintMessage(text)
-	ChatFrame1:AddMessage(string.format("Combat Tracking - %s", text), 0, 1, 0)
+	Print(string.format("|cffFF0084Combat Tracking|r - %s", text))
 end
 
 
@@ -319,7 +319,9 @@ end
 
 local function OnMouseDown(self,button)
 	if button == "LeftButton" then
-		self:StartMoving()
+		if (string.sub(self.TargetType, 0, 5) ~= "Arena" or not Settings[Setting_AttachedToGladius]) then
+			self:StartMoving()
+		end
 	elseif button == "RightButton" then
 		if (IsLeftControlKeyDown()) then
 			if (not GetFrameHidden(self)) then
@@ -461,7 +463,7 @@ local function SetLock(value, doNotReloadGladius)
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
 		
-		frame:EnableMouse(not value and frame.allowDrag ~= false)
+		frame:EnableMouse(not value)
 		
 		SetVisibility(frame, not value)
 	end
@@ -516,11 +518,6 @@ local function Init()
 	if IsAddOnLoaded("Gladius") then
 		hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
 		hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
-		
-		for i=1,5 do
-			local f = GetFrameByTarget("Arena"..i)
-			f.allowDrag = not Settings[Setting_AttachedToGladius]
-		end
 	end
 	
 	SetLock(Settings[Setting_Lock], true)
@@ -734,9 +731,9 @@ local function UpdateFrameCombatStatus(frame)
 		
 	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
 		if (frame.TargetType ~= "Player") then
-			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav", "MASTER")
 		else
-			PlaySoundFile("Interface\\AddOns\\CombatTracking\\beep.mp3")
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\beep.mp3", "MASTER")
 		end
 	end
 	
@@ -792,4 +789,4 @@ controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() en
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
 LibStub("AceConfigDialog-3.0"):AddToBlizOptions("CombatTracking", "CombatTracking")
-Print("Combat Tracking has been load. Type '/combatTracking' or '/ct' for options")
+PrintMessage("Addon has been load. Type '/combatTracking' or '/ct' for options")
