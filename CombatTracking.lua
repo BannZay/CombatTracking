@@ -96,6 +96,20 @@ local textures =
 -------------------------------- General --------------------------------
 
 
+function shallowcopy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in pairs(orig) do
+            copy[orig_key] = orig_value
+        end
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
 local function CompareIgnoreCase(str1, str2)
 	return string.upper(str1) == string.upper(str2)
 end
@@ -288,7 +302,7 @@ local function SaveFrame(item)
 		}
 		
 		if (relativeTo ~= nil) then
-			local parentFrameInfo = Find(targetsDefaultSettings, function(x) return x.parentFrame == relativeTo end)
+			local parentFrameInfo = Find(targetsDefaultSettings, function(x) return x.position.parentFrame == relativeTo end)
 			
 			if parentFrameInfo ~= nil then
 				frameInfo.position.point = "Left"
@@ -388,7 +402,7 @@ local function ConfigureFrame(frame, useSound, hidden, position)
 	frame:ClearAllPoints()
 	frame:SetParent(nil)
 	
-	if (position.parentFrame ~= nil) then
+	if (position.relativePoint ~= nil) then
 		frame:SetPoint(position.point, position.parentFrame, position.relativePoint, position.xOfs, position.yOfs)
 	else
 		frame:SetPoint(position.point, position.xOfs, position.yOfs)
@@ -412,8 +426,16 @@ local function LoadFrame(itemName, existingFrame)
 	local fi  = CombatTrackingDB[itemName]
 	local frame = existingFrame or CreateCTFrame(itemName)
 	
-	if (fi ~= nil) then
-		ConfigureFrame(frame, fi.useSound, fi.hidden, fi.position)
+	
+	if (fi ~= nil and fi.position ~= nil) then
+		
+		local position = fi.position
+		if (position.relativePoint) then -- we need to provide struct with parent frame
+			position = shallowcopy(fi.position)
+			position.parentFrame = Find(targetsDefaultSettings, function(x, index) return index == frame.TargetType end).position.parentFrame
+		end
+		
+		ConfigureFrame(frame, fi.useSound, fi.hidden, position)
 	else
 		ApplyDefaultSettingsToFrame(frame, true)
 	end
@@ -711,7 +733,11 @@ local function UpdateFrameCombatStatus(frame)
 	end
 		
 	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
-		PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+		if (frame.TargetType ~= "Player") then
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+		else
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\beep.mp3")
+		end
 	end
 	
 	frame.InCombat = newUnitInCombat
@@ -750,9 +776,6 @@ SLASH_CombatTracking3 = "/cTracking"
 
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
-controlFrame:RegisterEvent("VARIABLES_LOADED")
-controlFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
-controlFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 local eventHandlers =
 {
@@ -760,6 +783,11 @@ local eventHandlers =
 	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
 	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
 }
+
+for k,v in pairs(eventHandlers) do
+	controlFrame:RegisterEvent(k)
+end
+
 controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() end)
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
