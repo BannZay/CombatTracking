@@ -12,13 +12,6 @@ local Settings = nil
 local ctFrames = {}
 local textureSize = 40
 
-local ctToolTipText =
-{
-	"Left click - drag frame",
-	"Right click - toggle hide option",
-	"Right click with control - toggle sound option",
-}
-
 local targetsDefaultSettings =
 {
 	["Player"] = 
@@ -233,12 +226,15 @@ end
 
 local function ShowGladius(value)
 	if Gladius ~= nil then
-		local gladiusIsVisible = Gladius.frame ~= nil and Gladius.frame:IsShown()
 		
-		if value and not gladiusIsVisible then
-			Gladius:ToggleFrame(5)
-		elseif not value and gladiusIsVisible then
-			Gladius:HideFrame()
+		if select(2, IsInInstance()) ~= "arena" then -- showing gladius on arena leads to not apearing gladius on combat start
+			local gladiusIsVisible = Gladius.frame ~= nil and Gladius.frame:IsShown()
+			
+			if value and not gladiusIsVisible then
+				Gladius:ToggleFrame(5)
+			elseif not value and gladiusIsVisible then
+				Gladius:HideFrame()
+			end
 		end
 	end
 end
@@ -391,6 +387,12 @@ local function CreateCTFrame(target)
 	musicText:Hide()
 	frame.musicText = musicText
 	
+	local ctToolTipText =
+	{
+		"Left click - drag frame",
+		"Right click - toggle hide option",
+		"Right click with control - toggle sound option",
+	}
 	SetTooltip(frame, ctToolTipText)
 	
 	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
