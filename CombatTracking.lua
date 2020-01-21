@@ -285,7 +285,7 @@ end
 local function SaveFrame(item)
 	if item ~= nil then
 		local target = item.TargetType
-		local point, relativeTo, relativePoint, xOfs, yOfs = item:GetPoint(n)
+		local point, relativeTo, relativePoint, xOfs, yOfs = item:GetPoint()
 	
 		local frameInfo = Settings[target] or {}
 		
@@ -313,7 +313,7 @@ local function SaveFrame(item)
 	end
 end
 
-local function OnMouseDown(self,button)
+local function OnMouseDown(self, button)
 	if button == "LeftButton" then
 		if (string.sub(self.TargetType, 0, 5) ~= "Arena" or not Settings[Setting_AttachedToGladius]) then
 			self:StartMoving()
@@ -767,7 +767,6 @@ local function HandleSlashCommand(cmd)
 	InterfaceOptionsFrame_OpenToCategory("CombatTracking")
 end
 
-
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 SLASH_CombatTracking2 = "/combatTracking"
@@ -791,4 +790,3 @@ controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() en
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
 LibStub("AceConfigDialog-3.0"):AddToBlizOptions("CombatTracking", "CombatTracking")
-PrintMessage("Addon has been load. Type '/combatTracking' or '/ct' for options")
