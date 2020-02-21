@@ -640,7 +640,7 @@ local function BuildBlizzardOptions()
 	{
 		type = "toggle",
 		name = "Inverted",
-		desc = "Show frames if target is not in combat. Otherwise - show when target is not in combat",
+		desc = "Show frames if target NOT in combat. Otherwise - show when target in combat",
 		order = 3,
 	}
 	
