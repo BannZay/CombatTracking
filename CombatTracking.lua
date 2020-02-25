@@ -7,6 +7,7 @@ local Setting_PlaySounds 		= "playSounds"
 local Setting_AttachedToGladius = "attachedToGladius"
 
 CombatTrackingDB = nil
+local CombatDuration = 5.5
 local Settings = nil
 
 local ctFrames = {}
@@ -113,6 +114,10 @@ local function Find(tbl, filter)
 			return value, index
 		end
 	end
+end
+
+local function Contains(tbl, value)
+	return Find(tbl, function(x) return x == value end) ~= nil
 end
 
 local function BooleanToString(bool)
@@ -367,9 +372,22 @@ local function CreateCTFrame(target)
 	frame:SetClampedToScreen(true)
 	frame:SetScript("OnMouseDown", OnMouseDown)
 	frame:SetScript("OnMouseUp",function(self,button) if button == "LeftButton" then self:StopMovingOrSizing() SaveFrame(self) end end)
-	frame:Hide()
+	---frame:Hide()
+	
+	local coolDownFrame = CreateFrame("Cooldown", "CombatTracking" .. target .. "frameCooldown", frame, "CooldownFrameTemplate")
+	coolDownFrame:SetAllPoints()
+	coolDownFrame:Show()
+	frame.CooldownFrame = coolDownFrame
+	
+	-- frame.ic = frame:CreateTexture(nil,BORDER)
+	-- frame.ic:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	-- frame.ic:SetAllPoints()
+	-- frame.ic:SetTexCoord(0.5,0.75,0.25,0.5)
+	-- frame.ic:SetAlpha(0.3)
+	-- frame.ic:Show()
 	
 	frame.t=frame:CreateTexture(nil,BORDER)
+	frame.t:SetAllPoints()
 	frame.t:SetTexture(textures[Settings[Setting_TextureId]])
 	frame:SetScale(Settings[Setting_Scale])
 	
@@ -394,8 +412,6 @@ local function CreateCTFrame(target)
 		"Right click with control - toggle sound option",
 	}
 	SetTooltip(frame, ctToolTipText)
-	
-	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
 	
 	frame.TargetType = target
 	
@@ -481,12 +497,12 @@ end
 ---------------------------------------------------------------- Initialization ----------------------------------------------------------------
 
 
-local function UpdateItem(target)
+local function ReplaceItem(target)
 	for i = 1, #ctFrames do 
 		local itemToUpdate = ctFrames[i]
 		if (itemToUpdate.TargetType == target) then
 			table.remove(ctFrames, i)
-			itemToUpdate:Hide()
+			--itemToUpdate:Hide()
 			break
 		end
 	end
@@ -514,7 +530,7 @@ local function Init()
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
-		UpdateItem(item)
+		ReplaceItem(item)
 	end
 	
 	if IsAddOnLoaded("Gladius") then
@@ -537,7 +553,7 @@ local function Reset()
 	
 	for i = 1, #oldFrames do
 		SetFrameHidden(oldFrames[i], true)
-		oldFrames[i]:Hide()
+		--oldFrames[i]:Hide()
 	end
 	
 	Init()
@@ -694,8 +710,87 @@ local function BuildBlizzardOptions()
 end
 
 
----------------------------------------------------------------- Main ----------------------------------------------------------------
 
+local combatKeepers =
+{
+	605, -- Mind Control
+	53023 -- Mind Sear
+}
+
+---------------------------------------------------------------- Events --------------------------------------------------------------
+
+function KnownTargetType(unitName)
+	local frame = Find(ctFrames, function(x) return UnitName(x.TargetType) == unitName end)
+	
+	if (frame ~= nil) then
+		return frame.TargetType
+	else
+		return nil
+	end
+end
+
+local scanTool = CreateFrame( "GameTooltip", "ScanTooltip", nil, "GameTooltipTemplate" )
+scanTool:SetOwner( WorldFrame, "ANCHOR_NONE" )
+local scanText = _G["ScanTooltipTextLeft2"] -- This is the line with <[Player]'s Pet>
+
+function getPetOwner(petName)
+   scanTool:ClearLines()
+   scanTool:SetUnit(petName)
+   local ownerText = scanText:GetText()
+   if not ownerText then return nil end
+   local owner, _ = string.split("'",ownerText)
+   
+   return owner -- This is the pet's owner
+end
+
+function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
+	
+	-- if select(2, IsInInstance()) ~= "arena" then return end
+	
+	if (sourceName == destName) then return end
+	
+	if (eventType ~= "RANGE_MISSED"
+			and eventType ~= "RANGE_DAMAGE"
+			and eventType ~= "SWING_MISSED"
+			and eventType ~= "SWING_DAMAGE"
+			and eventType ~= "SPELL_HEAL"
+			and (eventType ~= "SPELL_AURA_APPLIED" or select(1, ...) == 57934) -- tricks of the trade
+			and eventType ~= "SPELL_AURA_APPLIED_DOSE"
+			and eventType ~= "SPELL_AURA_REMOVED"
+			and eventType ~= "SPELL_AURA_REFRESH"
+			and eventType ~= "SPELL_MISSED"
+			and (eventType ~= "SPELL_DAMAGE" or select(1, ...) == 48300)) -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
+	then return end
+	
+	--print(eventType)
+
+	-- TODO: get all frames as unit may be in target and in focus
+	local sourceTargetType = KnownTargetType(sourceName)
+	local destinationTargetType = KnownTargetType(destName)
+	
+	if (sourceTargetType == nil or destinationTargetType == nil) then return end
+	
+	--print(sourceTargetType.." attacks "..destinationTargetType)
+	
+	-- if units are friends and spell target is not in combat we have nothing to do here
+	if not (UnitIsEnemy(sourceTargetType, destinationTargetType) or UnitAffectingCombat(destinationTargetType)) then return end
+	
+	for index, value in pairs(ctFrames) do
+		local frameTargetName = UnitName(value.TargetType)
+		
+		if (frameTargetName == sourceName or frameTargetName == destName) then 	
+			if (eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))) then
+				value.CooldownFrame:SetCooldown(GetTime(), 0)
+			else
+				value.CooldownFrame:SetCooldown(GetTime(), CombatDuration)
+			end
+		end
+	end
+	
+	
+end
+
+---------------------------------------------------------------- Main ----------------------------------------------------------------
 
 local function FrameShouldBeUpdated(frame)
 	if (GetFrameHidden(frame) == true) then
@@ -730,7 +825,7 @@ local function UpdateFrameCombatStatus(frame)
 	if UnitExists(frame.TargetType) then
 		newUnitInCombat = UnitAffectingCombat(frame.TargetType)
 	end
-		
+	
 	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
 		if (frame.TargetType ~= "Player") then
 			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav", "MASTER")
@@ -739,12 +834,30 @@ local function UpdateFrameCombatStatus(frame)
 		end
 	end
 	
+	if (newUnitInCombat and not frame.InCombat) then
+		--frame.CooldownFrame:SetCooldown(GetTime(), CombatDuration)
+	end
+	
 	frame.InCombat = newUnitInCombat
 end
 
 local function UpdateFrame(frame)
+
+	if not UnitExists(frame.TargetType) then
+		frame:Hide()
+		return
+	else
+		frame:Show()
+	end
 	UpdateFrameCombatStatus(frame)
-	SetVisibility(frame, FrameShouldBeVisible(frame))
+	
+	if FrameShouldBeVisible(frame) then
+		frame.CooldownFrame:SetCooldown(0, 0)
+		frame.t:SetAlpha(0.9)
+	else
+		frame.t:SetAlpha(0.2)
+	end
+	
 end
 
 local function OnUpdate(self)
@@ -780,13 +893,14 @@ local eventHandlers =
 	["VARIABLES_LOADED"] = Init,
 	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
 	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
+	["COMBAT_LOG_EVENT_UNFILTERED"] = function(...) COMBAT_LOG_EVENT_UNFILTERED(...) end
 }
 
 for k,v in pairs(eventHandlers) do
 	controlFrame:RegisterEvent(k)
 end
 
-controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() end)
+controlFrame:SetScript("OnEvent", function(self, event, ...) eventHandlers[event](...) end)
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
 LibStub("AceConfigDialog-3.0"):AddToBlizOptions("CombatTracking", "CombatTracking")
