@@ -6,6 +6,7 @@ local Setting_Inverted 			= "inverted"
 local Setting_PlaySounds 		= "playSounds"
 local Setting_AttachedToGladius = "attachedToGladius"
 
+CombatTracking = {}
 CombatTrackingDB = nil
 local Settings = nil
 
@@ -135,14 +136,14 @@ end
 ---------------------------------------------------------------- DB settings ----------------------------------------------------------------
 
 
-local function SetSetting(settingName, value)
+function CombatTracking:SetSetting(settingName, value)
 	Settings[settingName] = value
 end
 
 local function InitSetting(settingName, defaultValue)
 	local setting2 = Settings[settingName]
 	if (setting2 == nil) then
-		SetSetting(settingName, defaultValue)
+		CombatTracking:SetSetting(settingName, defaultValue)
 	end
 	
 	return Settings[settingName]
@@ -239,41 +240,38 @@ local function ShowGladius(value)
 	end
 end
 
-local function GladiusFrameAppeared(arg1)
-	for i=1,5 do
-		local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
-		local f = GetFrameByTarget("Arena"..i)
-		if (gladiusButtonFrame ~= nil) then
-		
-			-- Setup our frame
-			f:ClearAllPoints()
-			local size = gladiusButtonFrame.classIcon:GetHeight() 
-			f:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-			f:SetWidth(size)
-			f:SetHeight(size)
-			f:SetScale(Gladius.frame:GetScale())
-			f.t:SetAllPoints()
-			
-			-- move Gladius dr frame to prevent overlapping
-			local drFrame = gladiusButtonFrame.drCooldownFrame
-			if drFrame and drFrame:GetNumPoints() == 1 then -- if numpoints != 1 unknown gladius used, dont touch it then
-				local point, relativeTo, relativePoint, xOfs, yOfs = gladiusButtonFrame.drCooldownFrame:GetPoint(1)
-				if (string.sub(relativePoint,-4) == "LEFT") then
-					drFrame:ClearAllPoints()
-					drFrame:SetPoint("TopRight", f, "TopLeft")
-				end
-			end
-			
-			SetVisibility(f, arg1)
-		end
-	end
-end
-
 local function OnGladiusFrameAppeared(arg1)
 	if Settings[Setting_AttachedToGladius] then
-		local status, err = pcall(function() GladiusFrameAppeared(arg1) end)
-		if not status then
-			PrintMessage("This version of Gladius is not supported for integration yet")
+		for n = 1, Gladius.currentBracket do
+			local gladiusButtonFrame = _G["GladiusButtonFrame"..n]
+			
+			-- Setup our frame
+			local ctFrame = GetFrameByTarget("Arena"..n)
+			ctFrame:ClearAllPoints()
+			local size = _G["GladiusButton"..n]:GetHeight() 
+			ctFrame:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
+			ctFrame:SetWidth(size)
+			ctFrame:SetHeight(size)
+			ctFrame:SetScale(Gladius.frame:GetScale())
+			ctFrame.t:SetAllPoints()
+			SetVisibility(ctFrame, true)
+			
+			-- move Gladius frames to prevent overlapping
+			for _, itemToCheck in pairs({gladiusButtonFrame.castBar, gladiusButtonFrame.spellCooldownFrame, gladiusButtonFrame.drCooldownFrame}) do
+				if (itemToCheck ~= nil and itemToCheck:IsVisible()) then
+					for i=1,itemToCheck:GetNumPoints() do
+						point, relativeTo, relativePoint, xOfs, yOfs = itemToCheck:GetPoint(i)
+						if (relativeTo == gladiusButtonFrame and relativePoint:match("LEFT")) then
+							itemToCheck:ClearAllPoints()
+							itemToCheck:SetPoint(point, relativeTo, relativePoint, xOfs - (size + 5), 0)
+						end
+					end
+				end
+			end
+		end
+		
+		for i = Gladius.currentBracket+1, 5 do
+			SetVisibility(GetFrameByTarget("Arena"..i), false)
 		end
 	end
 end
@@ -503,7 +501,7 @@ local function Init()
 	
 	Settings = CombatTrackingDB.Settings
 	
-	SetSetting(Setting_Lock, true)
+	CombatTracking:SetSetting(Setting_Lock, true)
 	InitSetting(Setting_ShowTextAlways, false)
 	InitSetting(Setting_Scale, 1)
 	InitSetting(Setting_TextureId, 1)
@@ -518,8 +516,7 @@ local function Init()
 	end
 	
 	if IsAddOnLoaded("Gladius") then
-		hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
-		hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
+		hooksecurefunc(Gladius, "UpdateFrame", OnGladiusFrameAppeared)
 	end
 	
 	SetLock(Settings[Setting_Lock], true)
@@ -587,9 +584,9 @@ local onOptionChanged =
 	[Setting_TextureId] = SetFramesTexture
 }
 
-local function ChangeSetting(SettingName, value)
+function CombatTracking:ChangeSetting(SettingName, value)
 	if (Settings[SettingName] ~= value) then
-		SetSetting(SettingName, value)
+		CombatTracking:SetSetting(SettingName, value)
 		
 		handler = Find(onOptionChanged, function(value, index) return index == SettingName end)
 		if handler ~= nil then
@@ -600,7 +597,7 @@ end
 
 local function SetOption(info, value)
 	local key = info.arg or info[#info]
-	ChangeSetting(key, value)
+	CombatTracking:ChangeSetting(key, value)
 end
 
 local function GetOption(info)
@@ -613,14 +610,14 @@ local function BuildBlizzardOptions()
 	local options = 
 	{
 		type = "group",
-		name = "CombatTracking",
+		name = "CombatTracking (/ct or /combattracking)",
 		plugins = {},
 		get = GetOption,
 		set = SetOption,
 		args = {}
 	}
 
-	options.args[Setting_Lock] = -- probably we should never store lock option
+	options.args[Setting_Lock] = -- probably we should not save lock option
 	{
 		type = "toggle",
 		name = "Lock",
@@ -770,14 +767,13 @@ end
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 SLASH_CombatTracking2 = "/combatTracking"
-SLASH_CombatTracking3 = "/cTracking"
 
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
 
 local eventHandlers =
 {
-	["VARIABLES_LOADED"] = Init,
+	["PLAYER_LOGIN"] = Init,
 	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
 	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
 }
