@@ -372,10 +372,10 @@ local function CreateCTFrame(target)
 	frame:SetScript("OnMouseUp",function(self,button) if button == "LeftButton" then self:StopMovingOrSizing() SaveFrame(self) end end)
 	---frame:Hide()
 	
-	local coolDownFrame = CreateFrame("Cooldown", "CombatTracking" .. target .. "frameCooldown", frame, "CooldownFrameTemplate")
-	coolDownFrame:SetAllPoints()
-	coolDownFrame:Show()
-	frame.CooldownFrame = coolDownFrame
+	local cooldownFrame = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+	cooldownFrame:SetAllPoints()
+	cooldownFrame:Show()
+	frame.CooldownFrame = cooldownFrame
 	
 	-- frame.ic = frame:CreateTexture(nil,BORDER)
 	-- frame.ic:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
@@ -491,6 +491,23 @@ local function SetLock(value, doNotReloadGladius)
 	end
 end
 
+local function OnCombatEnter(frame, keepInCombat)
+	frame.CombatStartedAt = GetTime()
+	frame.InCombat = true
+	frame.combatKeeped = keepInCombat
+	
+	if keepInCombat then
+		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, 0)
+	else
+		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, CombatDuration)
+	end
+end
+
+local function OnCombatLeave(frame)
+	frame.InCombat = false
+	frame.CombatStartedAt = nil
+	frame.CooldownFrame:SetCooldown(0,0)
+end
 
 ---------------------------------------------------------------- Initialization ----------------------------------------------------------------
 
@@ -740,47 +757,57 @@ function getPetOwner(petName)
    return owner -- This is the pet's owner
 end
 
+local TYPE_AGGRESSIVE = 1
+local TYPE_UNDEFINED = 2
+local TYPE_FRIENDLY = 3
+
 function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
-	
 	-- if select(2, IsInInstance()) ~= "arena" then return end
 	
 	if (sourceName == destName) then return end
 	
-	if (eventType ~= "RANGE_MISSED"
-			and eventType ~= "RANGE_DAMAGE"
-			and eventType ~= "SWING_MISSED"
-			and eventType ~= "SWING_DAMAGE"
-			and eventType ~= "SPELL_HEAL"
-			and (eventType ~= "SPELL_AURA_APPLIED" or select(1, ...) == 57934) -- tricks of the trade
-			and eventType ~= "SPELL_AURA_APPLIED_DOSE"
-			and eventType ~= "SPELL_AURA_REMOVED"
-			and eventType ~= "SPELL_AURA_REFRESH"
-			and eventType ~= "SPELL_MISSED"
-			and (eventType ~= "SPELL_DAMAGE" or select(1, ...) == 48300)) -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
-	then return end
+	local etype = nil
 	
-	--print(eventType)
+	if (eventType == "RANGE_MISSED" 
+		or eventType == "RANGE_DAMAGE" 
+		or eventType == "SWING_MISSED"
+		or eventType == "SWING_DAMAGE"
+		or eventType == "SPELL_DAMAGE" and select(1, ...) ~= 48300 -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
+		or eventType == "SPELL_MISSED") then
+			etype = TYPE_AGGRESSIVE
+	elseif (eventType == "SPELL_HEAL") then
+		etype = TYPE_FRIENDLY
+	elseif (eventType == "SPELL_DISPEL"
+			or eventType == "SPELL_AURA_APPLIED" and select(1, ...) ~= 57934 -- tricks of the trade
+			or eventType == "SPELL_AURA_APPLIED_DOSE"
+			or eventType == "SPELL_AURA_REFRESH") then 
+		etype = TYPE_UNDEFINED
+	end
+	
+	if etype == nil then return end
 
-	-- TODO: get all frames as unit may be in target and in focus
-	local sourceTargetType = KnownTargetType(sourceName)
-	local destinationTargetType = KnownTargetType(destName)
-	
-	if (sourceTargetType == nil or destinationTargetType == nil) then return end
-	
-	--print(sourceTargetType.." attacks "..destinationTargetType)
-	
-	-- if units are friends and spell target is not in combat we have nothing to do here
-	if not (UnitIsEnemy(sourceTargetType, destinationTargetType) or UnitAffectingCombat(destinationTargetType)) then return end
-	
+	if (etype == TYPE_UNDEFINED) then
+		local sourceTargetType = KnownTargetType(sourceName)
+		local destinationTargetType = KnownTargetType(destName)
+		if (sourceTargetType == nil or destinationTargetType == nil) then return end
+		if UnitIsEnemy(sourceTargetType, destinationTargetType)  then
+			etype = TYPE_AGGRESSIVE
+		else
+			etype = TYPE_FRIENDLY
+		end
+	end
+
+	if (etype == TYPE_FRIENDLY) then
+		local destinationTargetType = KnownTargetType(destName)
+		if (destinationTargetType == nil) then return end
+		if not UnitAffectingCombat(destinationTargetType) then return end
+	end
 	for index, value in pairs(ctFrames) do
 		local frameTargetName = UnitName(value.TargetType)
 		
-		if (frameTargetName == sourceName or frameTargetName == destName) then 	
-			if (eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))) then
-				value.CooldownFrame:SetCooldown(GetTime(), 0)
-			else
-				value.CooldownFrame:SetCooldown(GetTime(), CombatDuration)
-			end
+		if (frameTargetName == sourceName or etype == TYPE_AGGRESSIVE and frameTargetName == destName) then
+			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))
+			OnCombatEnter(value, keepInCombat)
 		end
 	end
 	
@@ -819,11 +846,11 @@ end
 
 local function UpdateFrameCombatStatus(frame)
 	local newUnitInCombat = nil
-	if UnitExists(frame.TargetType) then
+	if UnitExists(frame.TargetType) and not UnitIsDeadOrGhost(frame.TargetType) then
 		newUnitInCombat = UnitAffectingCombat(frame.TargetType)
 	end
 	
-	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
+	if (newUnitInCombat == false and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
 		if (frame.TargetType ~= "Player") then
 			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav", "MASTER")
 		else
@@ -831,16 +858,13 @@ local function UpdateFrameCombatStatus(frame)
 		end
 	end
 	
-	if (newUnitInCombat and not frame.InCombat) then
-		--frame.CooldownFrame:SetCooldown(GetTime(), CombatDuration)
+	if (newUnitInCombat == true and not frame.InCombat) then
+		OnCombatEnter(frame)
 	end
-	
-	frame.InCombat = newUnitInCombat
 end
 
 local function UpdateFrame(frame)
-
-	if not UnitExists(frame.TargetType) then
+	if not UnitExists(frame.TargetType) or not UnitIsPlayer(frame.TargetType) then
 		frame:Hide()
 		return
 	else
@@ -849,7 +873,7 @@ local function UpdateFrame(frame)
 	UpdateFrameCombatStatus(frame)
 	
 	if FrameShouldBeVisible(frame) then
-		frame.CooldownFrame:SetCooldown(0, 0)
+		OnCombatLeave(frame)
 		frame.t:SetAlpha(0.9)
 	else
 		frame.t:SetAlpha(0.2)
@@ -877,6 +901,27 @@ local function HandleSlashCommand(cmd)
 	InterfaceOptionsFrame_OpenToCategory("CombatTracking")
 end
 
+local function RestoreSettingsForFrame(frameType)
+	local unitName = UnitName(frameType)
+	local mirrorFrame = Find(ctFrames, function(x) return x.TargetType ~= frameType and UnitName(x.TargetType) == unitName end)
+	if mirrorFrame ~= nil then
+		local sourceFrame = GetFrameByTarget(frameType)
+		sourceFrame.InCombat = mirrorFrame.InCombat
+		sourceFrame.CombatStartedAt = mirrorFrame.CombatStartedAt
+		sourceFrame.keepInCombat = mirrorFrame.keepInCombat
+		if mirrorFrame.InCombat then
+			if mirrorFrame.CombatStartedAt == nil then print("WTF") end
+			if sourceFrame.combatKeeped then
+				sourceFrame.CooldownFrame:SetCooldown(mirrorFrame.CombatStartedAt, 0)
+			else
+				sourceFrame.CooldownFrame:SetCooldown(mirrorFrame.CombatStartedAt, CombatDuration)
+			end
+		
+		end
+	end
+end
+
+
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 SLASH_CombatTracking2 = "/combatTracking"
@@ -887,8 +932,8 @@ controlFrame:SetScript("OnUpdate", OnUpdate)
 local eventHandlers =
 {
 	["PLAYER_LOGIN"] = Init,
-	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
-	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
+	["PLAYER_FOCUS_CHANGED"] = function() RestoreSettingsForFrame("Focus") end,
+	["PLAYER_TARGET_CHANGED"] = function() RestoreSettingsForFrame("Target") end,
 	["COMBAT_LOG_EVENT_UNFILTERED"] = function(...) COMBAT_LOG_EVENT_UNFILTERED(...) end
 }
 
