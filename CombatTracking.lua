@@ -6,7 +6,9 @@ local Setting_Inverted 			= "inverted"
 local Setting_PlaySounds 		= "playSounds"
 local Setting_AttachedToGladius = "attachedToGladius"
 
+CombatTracking = {}
 CombatTrackingDB = nil
+local CombatDuration = 5.5
 local Settings = nil
 
 local ctFrames = {}
@@ -115,6 +117,10 @@ local function Find(tbl, filter)
 	end
 end
 
+local function Contains(tbl, value)
+	return Find(tbl, function(x) return x == value end) ~= nil
+end
+
 local function BooleanToString(bool)
 	if bool then
 		return "true"
@@ -135,14 +141,14 @@ end
 ---------------------------------------------------------------- DB settings ----------------------------------------------------------------
 
 
-local function SetSetting(settingName, value)
+function CombatTracking:SetSetting(settingName, value)
 	Settings[settingName] = value
 end
 
 local function InitSetting(settingName, defaultValue)
 	local setting2 = Settings[settingName]
 	if (setting2 == nil) then
-		SetSetting(settingName, defaultValue)
+		CombatTracking:SetSetting(settingName, defaultValue)
 	end
 	
 	return Settings[settingName]
@@ -239,41 +245,38 @@ local function ShowGladius(value)
 	end
 end
 
-local function GladiusFrameAppeared(arg1)
-	for i=1,5 do
-		local gladiusButtonFrame = _G["GladiusButtonFrame"..i]
-		local f = GetFrameByTarget("Arena"..i)
-		if (gladiusButtonFrame ~= nil) then
-		
-			-- Setup our frame
-			f:ClearAllPoints()
-			local size = gladiusButtonFrame.classIcon:GetHeight() 
-			f:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-			f:SetWidth(size)
-			f:SetHeight(size)
-			f:SetScale(Gladius.frame:GetScale())
-			f.t:SetAllPoints()
-			
-			-- move Gladius dr frame to prevent overlapping
-			local drFrame = gladiusButtonFrame.drCooldownFrame
-			if drFrame and drFrame:GetNumPoints() == 1 then -- if numpoints != 1 unknown gladius used, dont touch it then
-				local point, relativeTo, relativePoint, xOfs, yOfs = gladiusButtonFrame.drCooldownFrame:GetPoint(1)
-				if (string.sub(relativePoint,-4) == "LEFT") then
-					drFrame:ClearAllPoints()
-					drFrame:SetPoint("TopRight", f, "TopLeft")
-				end
-			end
-			
-			SetVisibility(f, arg1)
-		end
-	end
-end
-
 local function OnGladiusFrameAppeared(arg1)
 	if Settings[Setting_AttachedToGladius] then
-		local status, err = pcall(function() GladiusFrameAppeared(arg1) end)
-		if not status then
-			PrintMessage("This version of Gladius is not supported for integration yet")
+		for n = 1, Gladius.currentBracket do
+			local gladiusButtonFrame = _G["GladiusButtonFrame"..n]
+			
+			-- Setup our frame
+			local ctFrame = GetFrameByTarget("Arena"..n)
+			ctFrame:ClearAllPoints()
+			local size = _G["GladiusButton"..n]:GetHeight() 
+			ctFrame:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
+			ctFrame:SetWidth(size)
+			ctFrame:SetHeight(size)
+			ctFrame:SetScale(Gladius.frame:GetScale())
+			ctFrame.t:SetAllPoints()
+			SetVisibility(ctFrame, true)
+			
+			-- move Gladius frames to prevent overlapping
+			for _, itemToCheck in pairs({gladiusButtonFrame.castBar, gladiusButtonFrame.spellCooldownFrame, gladiusButtonFrame.drCooldownFrame}) do
+				if (itemToCheck ~= nil and itemToCheck:IsVisible()) then
+					for i=1,itemToCheck:GetNumPoints() do
+						point, relativeTo, relativePoint, xOfs, yOfs = itemToCheck:GetPoint(i)
+						if (relativeTo == gladiusButtonFrame and relativePoint:match("LEFT")) then
+							itemToCheck:ClearAllPoints()
+							itemToCheck:SetPoint(point, relativeTo, relativePoint, xOfs - (size + 5), 0)
+						end
+					end
+				end
+			end
+		end
+		
+		for i = Gladius.currentBracket+1, 5 do
+			SetVisibility(GetFrameByTarget("Arena"..i), false)
 		end
 	end
 end
@@ -367,9 +370,22 @@ local function CreateCTFrame(target)
 	frame:SetClampedToScreen(true)
 	frame:SetScript("OnMouseDown", OnMouseDown)
 	frame:SetScript("OnMouseUp",function(self,button) if button == "LeftButton" then self:StopMovingOrSizing() SaveFrame(self) end end)
-	frame:Hide()
+	---frame:Hide()
+	
+	local cooldownFrame = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+	cooldownFrame:SetAllPoints()
+	cooldownFrame:Show()
+	frame.CooldownFrame = cooldownFrame
+	
+	-- frame.ic = frame:CreateTexture(nil,BORDER)
+	-- frame.ic:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	-- frame.ic:SetAllPoints()
+	-- frame.ic:SetTexCoord(0.5,0.75,0.25,0.5)
+	-- frame.ic:SetAlpha(0.3)
+	-- frame.ic:Show()
 	
 	frame.t=frame:CreateTexture(nil,BORDER)
+	frame.t:SetAllPoints()
 	frame.t:SetTexture(textures[Settings[Setting_TextureId]])
 	frame:SetScale(Settings[Setting_Scale])
 	
@@ -394,8 +410,6 @@ local function CreateCTFrame(target)
 		"Right click with control - toggle sound option",
 	}
 	SetTooltip(frame, ctToolTipText)
-	
-	local frameDefaultSettings = Find(targetsDefaultSettings, function(x, i) return i == target end)
 	
 	frame.TargetType = target
 	
@@ -477,16 +491,33 @@ local function SetLock(value, doNotReloadGladius)
 	end
 end
 
+local function OnCombatEnter(frame, keepInCombat)
+	frame.CombatStartedAt = GetTime()
+	frame.InCombat = true
+	frame.combatKeeped = keepInCombat
+	
+	if keepInCombat then
+		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, 0)
+	else
+		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, CombatDuration)
+	end
+end
+
+local function OnCombatLeave(frame)
+	frame.InCombat = false
+	frame.CombatStartedAt = nil
+	frame.CooldownFrame:SetCooldown(0,0)
+end
 
 ---------------------------------------------------------------- Initialization ----------------------------------------------------------------
 
 
-local function UpdateItem(target)
+local function ReplaceItem(target)
 	for i = 1, #ctFrames do 
 		local itemToUpdate = ctFrames[i]
 		if (itemToUpdate.TargetType == target) then
 			table.remove(ctFrames, i)
-			itemToUpdate:Hide()
+			--itemToUpdate:Hide()
 			break
 		end
 	end
@@ -503,7 +534,7 @@ local function Init()
 	
 	Settings = CombatTrackingDB.Settings
 	
-	SetSetting(Setting_Lock, true)
+	CombatTracking:SetSetting(Setting_Lock, true)
 	InitSetting(Setting_ShowTextAlways, false)
 	InitSetting(Setting_Scale, 1)
 	InitSetting(Setting_TextureId, 1)
@@ -514,12 +545,11 @@ local function Init()
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName)
-		UpdateItem(item)
+		ReplaceItem(item)
 	end
 	
 	if IsAddOnLoaded("Gladius") then
-		hooksecurefunc(Gladius, "JoinedArena", OnGladiusFrameAppeared)
-		hooksecurefunc(Gladius, "ToggleFrame", OnGladiusFrameAppeared) -- '/gladius test' triggers this method
+		hooksecurefunc(Gladius, "UpdateFrame", OnGladiusFrameAppeared)
 	end
 	
 	SetLock(Settings[Setting_Lock], true)
@@ -537,7 +567,7 @@ local function Reset()
 	
 	for i = 1, #oldFrames do
 		SetFrameHidden(oldFrames[i], true)
-		oldFrames[i]:Hide()
+		--oldFrames[i]:Hide()
 	end
 	
 	Init()
@@ -587,9 +617,9 @@ local onOptionChanged =
 	[Setting_TextureId] = SetFramesTexture
 }
 
-local function ChangeSetting(SettingName, value)
+function CombatTracking:ChangeSetting(SettingName, value)
 	if (Settings[SettingName] ~= value) then
-		SetSetting(SettingName, value)
+		CombatTracking:SetSetting(SettingName, value)
 		
 		handler = Find(onOptionChanged, function(value, index) return index == SettingName end)
 		if handler ~= nil then
@@ -600,7 +630,7 @@ end
 
 local function SetOption(info, value)
 	local key = info.arg or info[#info]
-	ChangeSetting(key, value)
+	CombatTracking:ChangeSetting(key, value)
 end
 
 local function GetOption(info)
@@ -613,14 +643,14 @@ local function BuildBlizzardOptions()
 	local options = 
 	{
 		type = "group",
-		name = "CombatTracking",
+		name = "CombatTracking (/ct or /combattracking)",
 		plugins = {},
 		get = GetOption,
 		set = SetOption,
 		args = {}
 	}
 
-	options.args[Setting_Lock] = -- probably we should never store lock option
+	options.args[Setting_Lock] = -- probably we should not save lock option
 	{
 		type = "toggle",
 		name = "Lock",
@@ -694,8 +724,97 @@ local function BuildBlizzardOptions()
 end
 
 
----------------------------------------------------------------- Main ----------------------------------------------------------------
 
+local combatKeepers =
+{
+	605, -- Mind Control
+	53023 -- Mind Sear
+}
+
+---------------------------------------------------------------- Events --------------------------------------------------------------
+
+function KnownTargetType(unitName)
+	local frame = Find(ctFrames, function(x) return UnitName(x.TargetType) == unitName end)
+	
+	if (frame ~= nil) then
+		return frame.TargetType
+	else
+		return nil
+	end
+end
+
+local scanTool = CreateFrame( "GameTooltip", "ScanTooltip", nil, "GameTooltipTemplate" )
+scanTool:SetOwner( WorldFrame, "ANCHOR_NONE" )
+local scanText = _G["ScanTooltipTextLeft2"] -- This is the line with <[Player]'s Pet>
+
+function getPetOwner(petName)
+   scanTool:ClearLines()
+   scanTool:SetUnit(petName)
+   local ownerText = scanText:GetText()
+   if not ownerText then return nil end
+   local owner, _ = string.split("'",ownerText)
+   
+   return owner -- This is the pet's owner
+end
+
+local TYPE_AGGRESSIVE = 1
+local TYPE_UNDEFINED = 2
+local TYPE_FRIENDLY = 3
+
+function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
+	-- if select(2, IsInInstance()) ~= "arena" then return end
+	
+	if (sourceName == destName) then return end
+	
+	local etype = nil
+	
+	if (eventType == "RANGE_MISSED" 
+		or eventType == "RANGE_DAMAGE" 
+		or eventType == "SWING_MISSED"
+		or eventType == "SWING_DAMAGE"
+		or eventType == "SPELL_DAMAGE" and select(1, ...) ~= 48300 -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
+		or eventType == "SPELL_MISSED") then
+			etype = TYPE_AGGRESSIVE
+	elseif (eventType == "SPELL_HEAL") then
+		etype = TYPE_FRIENDLY
+	elseif (eventType == "SPELL_DISPEL"
+			or eventType == "SPELL_AURA_APPLIED" and select(1, ...) ~= 57934 -- tricks of the trade
+			or eventType == "SPELL_AURA_APPLIED_DOSE"
+			or eventType == "SPELL_AURA_REFRESH") then 
+		etype = TYPE_UNDEFINED
+	end
+	
+	if etype == nil then return end
+
+	if (etype == TYPE_UNDEFINED) then
+		local sourceTargetType = KnownTargetType(sourceName)
+		local destinationTargetType = KnownTargetType(destName)
+		if (sourceTargetType == nil or destinationTargetType == nil) then return end
+		if UnitIsEnemy(sourceTargetType, destinationTargetType)  then
+			etype = TYPE_AGGRESSIVE
+		else
+			etype = TYPE_FRIENDLY
+		end
+	end
+
+	if (etype == TYPE_FRIENDLY) then
+		local destinationTargetType = KnownTargetType(destName)
+		if (destinationTargetType == nil) then return end
+		if not UnitAffectingCombat(destinationTargetType) then return end
+	end
+	for index, value in pairs(ctFrames) do
+		local frameTargetName = UnitName(value.TargetType)
+		
+		if (frameTargetName == sourceName or etype == TYPE_AGGRESSIVE and frameTargetName == destName) then
+			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))
+			OnCombatEnter(value, keepInCombat)
+		end
+	end
+	
+	
+end
+
+---------------------------------------------------------------- Main ----------------------------------------------------------------
 
 local function FrameShouldBeUpdated(frame)
 	if (GetFrameHidden(frame) == true) then
@@ -727,11 +846,11 @@ end
 
 local function UpdateFrameCombatStatus(frame)
 	local newUnitInCombat = nil
-	if UnitExists(frame.TargetType) then
+	if UnitExists(frame.TargetType) and not UnitIsDeadOrGhost(frame.TargetType) then
 		newUnitInCombat = UnitAffectingCombat(frame.TargetType)
 	end
-		
-	if (not newUnitInCombat and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
+	
+	if (newUnitInCombat == false and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
 		if (frame.TargetType ~= "Player") then
 			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav", "MASTER")
 		else
@@ -739,12 +858,27 @@ local function UpdateFrameCombatStatus(frame)
 		end
 	end
 	
-	frame.InCombat = newUnitInCombat
+	if (newUnitInCombat == true and not frame.InCombat) then
+		OnCombatEnter(frame)
+	end
 end
 
 local function UpdateFrame(frame)
+	if not UnitExists(frame.TargetType) or not UnitIsPlayer(frame.TargetType) then
+		frame:Hide()
+		return
+	else
+		frame:Show()
+	end
 	UpdateFrameCombatStatus(frame)
-	SetVisibility(frame, FrameShouldBeVisible(frame))
+	
+	if FrameShouldBeVisible(frame) then
+		OnCombatLeave(frame)
+		frame.t:SetAlpha(0.9)
+	else
+		frame.t:SetAlpha(0.2)
+	end
+	
 end
 
 local function OnUpdate(self)
@@ -767,26 +901,47 @@ local function HandleSlashCommand(cmd)
 	InterfaceOptionsFrame_OpenToCategory("CombatTracking")
 end
 
+local function RestoreSettingsForFrame(frameType)
+	local unitName = UnitName(frameType)
+	local mirrorFrame = Find(ctFrames, function(x) return x.TargetType ~= frameType and UnitName(x.TargetType) == unitName end)
+	if mirrorFrame ~= nil then
+		local sourceFrame = GetFrameByTarget(frameType)
+		sourceFrame.InCombat = mirrorFrame.InCombat
+		sourceFrame.CombatStartedAt = mirrorFrame.CombatStartedAt
+		sourceFrame.keepInCombat = mirrorFrame.keepInCombat
+		if mirrorFrame.InCombat then
+			if mirrorFrame.CombatStartedAt == nil then print("WTF") end
+			if sourceFrame.combatKeeped then
+				sourceFrame.CooldownFrame:SetCooldown(mirrorFrame.CombatStartedAt, 0)
+			else
+				sourceFrame.CooldownFrame:SetCooldown(mirrorFrame.CombatStartedAt, CombatDuration)
+			end
+		
+		end
+	end
+end
+
+
 SlashCmdList["CombatTracking"] = function(cmd) HandleSlashCommand(cmd) end
 SLASH_CombatTracking1 = "/ct"
 SLASH_CombatTracking2 = "/combatTracking"
-SLASH_CombatTracking3 = "/cTracking"
 
 local controlFrame = CreateFrame("Frame")
 controlFrame:SetScript("OnUpdate", OnUpdate)
 
 local eventHandlers =
 {
-	["VARIABLES_LOADED"] = Init,
-	["PLAYER_FOCUS_CHANGED"] = function() GetFrameByTarget("Focus").InCombat = nil end,
-	["PLAYER_TARGET_CHANGED"] = function() GetFrameByTarget("Target").InCombat = nil end,
+	["PLAYER_LOGIN"] = Init,
+	["PLAYER_FOCUS_CHANGED"] = function() RestoreSettingsForFrame("Focus") end,
+	["PLAYER_TARGET_CHANGED"] = function() RestoreSettingsForFrame("Target") end,
+	["COMBAT_LOG_EVENT_UNFILTERED"] = function(...) COMBAT_LOG_EVENT_UNFILTERED(...) end
 }
 
 for k,v in pairs(eventHandlers) do
 	controlFrame:RegisterEvent(k)
 end
 
-controlFrame:SetScript("OnEvent", function(self,event) eventHandlers[event]() end)
+controlFrame:SetScript("OnEvent", function(self, event, ...) eventHandlers[event](...) end)
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable("CombatTracking", BuildBlizzardOptions())
 LibStub("AceConfigDialog-3.0"):AddToBlizOptions("CombatTracking", "CombatTracking")
