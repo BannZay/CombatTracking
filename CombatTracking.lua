@@ -495,14 +495,20 @@ local function SetLock(value, doNotReloadGladius)
 end
 
 local function OnCombatEnter(frame, keepInCombat)
+	if frame.combatKeeped == true and keepInCombat ~= false then 
+		return
+	end
+	
 	frame.CombatStartedAt = GetTime()
 	frame.combatKeeped = keepInCombat
 	
 	if keepInCombat then
-		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, 0)
+		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, frame.CombatStartedAt + 9999999)
 	else
 		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, CombatDuration)
 	end
+	
+	frame.InCombat = true
 end
 
 local function OnCombatLeave(frame)
@@ -516,6 +522,7 @@ local function OnCombatLeave(frame)
 	
 	frame.CombatStartedAt = nil
 	frame.CooldownFrame:SetCooldown(0,0)
+	frame.InCombat = false
 end
 
 ---------------------------------------------------------------- Initialization ----------------------------------------------------------------
@@ -734,7 +741,7 @@ end
 local combatKeepers =
 {
 	605, -- Mind Control
-	53023 -- Mind Sear
+	53023, 48045 -- Mind Sear
 }
 
 ---------------------------------------------------------------- Events --------------------------------------------------------------
@@ -768,18 +775,18 @@ local TYPE_UNDEFINED = 2
 local TYPE_FRIENDLY = 3
 
 function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
-	-- if select(2, IsInInstance()) ~= "arena" then return end
-	
 	if (sourceName == destName) then return end
-	
+	-- print(eventType)
 	local etype = nil
 	
+
 	if (eventType == "RANGE_MISSED" 
 		or eventType == "RANGE_DAMAGE" 
 		or eventType == "SWING_MISSED"
 		or eventType == "SWING_DAMAGE"
 		or eventType == "SPELL_DAMAGE" and select(1, ...) ~= 48300 -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
-		or eventType == "SPELL_MISSED") then
+		or eventType == "SPELL_MISSED"
+		or eventType == "SPELL_AURA_REMOVED" and Contains(combatKeepers, select(1, ...))) then
 			etype = TYPE_AGGRESSIVE
 	elseif (eventType == "SPELL_HEAL") then
 		etype = TYPE_FRIENDLY
@@ -863,8 +870,6 @@ local function UpdateFrameCombatStatus(frame)
 	if (newUnitInCombat and not frame.InCombat) then
 		OnCombatEnter(frame)
 	end
-	
-	frame.InCombat = newUnitInCombat
 end
 
 local function UpdateFrame(frame)
