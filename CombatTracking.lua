@@ -255,9 +255,9 @@ local function OnGladiusFrameAppeared(arg1)
 			ctFrame:ClearAllPoints()
 			local size = _G["GladiusButton"..n]:GetHeight() 
 			ctFrame:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-			ctFrame:SetWidth(size)
-			ctFrame:SetHeight(size)
-			ctFrame:SetScale(Gladius.frame:GetScale())
+			-- ctFrame:SetWidth(size)
+			-- ctFrame:SetHeight(size)
+			-- ctFrame:SetScale(Gladius.frame:GetScale())
 			ctFrame.t:SetAllPoints()
 			SetVisibility(ctFrame, true)
 			
@@ -318,9 +318,9 @@ end
 
 local function OnMouseDown(self, button)
 	if button == "LeftButton" then
-		if (string.sub(self.TargetType, 0, 5) ~= "Arena" or not Settings[Setting_AttachedToGladius]) then
+		--if (string.sub(self.TargetType, 0, 5) ~= "Arena" or not Settings[Setting_AttachedToGladius]) then
 			self:StartMoving()
-		end
+		--end
 	elseif button == "RightButton" then
 		if (IsLeftControlKeyDown()) then
 			if (not GetFrameHidden(self)) then
@@ -360,8 +360,11 @@ function SetTooltip(self, textLines)
 	end
 end
 
-local function CreateCTFrame(target)
-	local frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
+local function CreateCTFrame(target, frame)
+	if frame == nil then
+		frame = CreateFrame("Frame", "CombatTracking" .. target .. "frame")
+	end
+	
 	frame.New = true
 	frame:SetSize(textureSize, textureSize)
 	frame:SetFrameStrata("MEDIUM")
@@ -493,7 +496,6 @@ end
 
 local function OnCombatEnter(frame, keepInCombat)
 	frame.CombatStartedAt = GetTime()
-	frame.InCombat = true
 	frame.combatKeeped = keepInCombat
 	
 	if keepInCombat then
@@ -504,7 +506,14 @@ local function OnCombatEnter(frame, keepInCombat)
 end
 
 local function OnCombatLeave(frame)
-	frame.InCombat = false
+	if Settings[Setting_PlaySounds] and GetFrameUseSound(frame) then
+		if (frame.TargetType ~= "Player") then
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav")
+		else
+			PlaySoundFile("Interface\\AddOns\\CombatTracking\\beep.mp3")
+		end
+	end
+	
 	frame.CombatStartedAt = nil
 	frame.CooldownFrame:SetCooldown(0,0)
 end
@@ -544,7 +553,7 @@ local function Init()
 	
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
-		local item = LoadFrame(targetName)
+		local item = LoadFrame(targetName, GetFrameByTarget(targetName))
 		ReplaceItem(item)
 	end
 	
@@ -562,12 +571,8 @@ end
 local function Reset()
 	CombatTrackingDB = {}
 	
-	local oldFrames = ctFrames
-	ctFrames = {}
-	
-	for i = 1, #oldFrames do
-		SetFrameHidden(oldFrames[i], true)
-		--oldFrames[i]:Hide()
+	for i = 1, #ctFrames do
+		CreateCTFrame(ctFrames[i].TargetType, ctFrames[i]) -- resets the frame
 	end
 	
 	Init()
@@ -588,7 +593,7 @@ local function AttachedToGladiusChanged(value)
 			LoadFrame(f.TargetType, f)
 		end
 		
-		f:EnableMouse(not value)
+		-- f:EnableMouse(not value)
 	end
 
 	if (Settings[Setting_Lock] == false) then
@@ -689,7 +694,7 @@ local function BuildBlizzardOptions()
 		desc = "Does not affect arenaframes integrated into gladius",
 		min =.1,
 		max = 5,
-		step =.01,
+		step =.03,
 		order = 5,
 	}
 	
@@ -718,6 +723,7 @@ local function BuildBlizzardOptions()
 		name = "Integrate into gladius",
 		desc = "Attach addon arenaframes to gladius arenaframes",
 		order = 99,
+		disabled = function() return Gladius == nil end
 	}
 
 	return options
@@ -802,12 +808,12 @@ function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceNam
 		if (destinationTargetType == nil) then return end
 		if not UnitAffectingCombat(destinationTargetType) then return end
 	end
-	for index, value in pairs(ctFrames) do
-		local frameTargetName = UnitName(value.TargetType)
+	for index, frame in pairs(ctFrames) do
+		local frameTargetName = UnitName(frame.TargetType)
 		
 		if (frameTargetName == sourceName or etype == TYPE_AGGRESSIVE and frameTargetName == destName) then
 			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))
-			OnCombatEnter(value, keepInCombat)
+			OnCombatEnter(frame, keepInCombat)
 		end
 	end
 	
@@ -850,17 +856,15 @@ local function UpdateFrameCombatStatus(frame)
 		newUnitInCombat = UnitAffectingCombat(frame.TargetType)
 	end
 	
-	if (newUnitInCombat == false and frame.InCombat and Settings[Setting_PlaySounds] == true and GetFrameUseSound(frame) == true) then
-		if (frame.TargetType ~= "Player") then
-			PlaySoundFile("Interface\\AddOns\\CombatTracking\\bell.wav", "MASTER")
-		else
-			PlaySoundFile("Interface\\AddOns\\CombatTracking\\beep.mp3", "MASTER")
-		end
+	if not newUnitInCombat and frame.InCombat then
+		OnCombatLeave(frame)
 	end
 	
-	if (newUnitInCombat == true and not frame.InCombat) then
+	if (newUnitInCombat and not frame.InCombat) then
 		OnCombatEnter(frame)
 	end
+	
+	frame.InCombat = newUnitInCombat
 end
 
 local function UpdateFrame(frame)
@@ -873,7 +877,6 @@ local function UpdateFrame(frame)
 	UpdateFrameCombatStatus(frame)
 	
 	if FrameShouldBeVisible(frame) then
-		OnCombatLeave(frame)
 		frame.t:SetAlpha(0.9)
 	else
 		frame.t:SetAlpha(0.2)
@@ -904,13 +907,13 @@ end
 local function RestoreSettingsForFrame(frameType)
 	local unitName = UnitName(frameType)
 	local mirrorFrame = Find(ctFrames, function(x) return x.TargetType ~= frameType and UnitName(x.TargetType) == unitName end)
+	local sourceFrame = GetFrameByTarget(frameType)
+	
 	if mirrorFrame ~= nil then
-		local sourceFrame = GetFrameByTarget(frameType)
 		sourceFrame.InCombat = mirrorFrame.InCombat
 		sourceFrame.CombatStartedAt = mirrorFrame.CombatStartedAt
 		sourceFrame.keepInCombat = mirrorFrame.keepInCombat
 		if mirrorFrame.InCombat then
-			if mirrorFrame.CombatStartedAt == nil then print("WTF") end
 			if sourceFrame.combatKeeped then
 				sourceFrame.CooldownFrame:SetCooldown(mirrorFrame.CombatStartedAt, 0)
 			else
@@ -918,6 +921,11 @@ local function RestoreSettingsForFrame(frameType)
 			end
 		
 		end
+	else 
+		sourceFrame.InCombat = UnitAffectingCombat(frameType)
+		sourceFrame.CombatStartedAt = nil
+		sourceFrame.keepInCombat = nil
+		sourceFrame.CooldownFrame:SetCooldown(0, 0)
 	end
 end
 
