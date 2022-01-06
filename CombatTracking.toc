@@ -3,6 +3,7 @@
 ## SavedVariables: CombatTrackingDB
 ## Author: BannZay
 ## Notes: Tracks combat status
+## Version: v2.3
 ## DefaultState: Enabled
 ## OptionalDeps: Ace3, LibStub, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
 
