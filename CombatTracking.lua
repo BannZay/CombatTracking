@@ -1,3 +1,8 @@
+CombatTracking = {}
+CombatTrackingDB = nil
+-- local log = LibStub("LibLogger-1.0"):New("CombatTracking");
+-- log:SetMaximumLogLevel(0);
+
 local Setting_Lock 				= "lock"
 local Setting_ShowTextAlways 	= "showTextAlways"
 local Setting_Scale 			= "scale"
@@ -6,13 +11,18 @@ local Setting_Inverted 			= "inverted"
 local Setting_PlaySounds 		= "playSounds"
 local Setting_AttachedToGladius = "attachedToGladius"
 
-CombatTracking = {}
-CombatTrackingDB = nil
 local CombatDuration = 5.5
 local Settings = nil
 
 local ctFrames = {}
 local textureSize = 40
+
+local noCombatAbilities = 
+{
+	51724, -- Sap
+	453, -- Mind Soothe
+	57934, -- Tricks of the trade
+}
 
 local targetsDefaultSettings =
 {
@@ -741,7 +751,8 @@ end
 local combatKeepers =
 {
 	605, -- Mind Control
-	53023, 48045 -- Mind Sear
+	53023, 
+	48045 -- Mind Sear
 }
 
 ---------------------------------------------------------------- Events --------------------------------------------------------------
@@ -774,30 +785,46 @@ local TYPE_AGGRESSIVE = 1
 local TYPE_UNDEFINED = 2
 local TYPE_FRIENDLY = 3
 
-function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
-	if (sourceName == destName) then return end
-	-- print(eventType)
-	local etype = nil
+function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, maybeSpellId)
+	-- local log, dbgInfo = log:CreateLocalLogger();
+	-- dbgInfo.eventType = eventType;
+	-- dbgInfo.maybeSpellId = maybeSpellId;
+	-- dbgInfo.sourceName = sourceName;
+	-- dbgInfo.destName = destName;
 	
+	if (sourceName == destName) then return end
+	if type(maybeSpellId) == "number" then
+		for _, noCombatSpellId in pairs(noCombatAbilities) do
+			if maybeSpellId == noCombatSpellId then
+				return;
+			end
+		end
+	end
+	
+	local etype = nil
 
 	if (eventType == "RANGE_MISSED" 
 		or eventType == "RANGE_DAMAGE" 
 		or eventType == "SWING_MISSED"
 		or eventType == "SWING_DAMAGE"
-		or eventType == "SPELL_DAMAGE" and select(1, ...) ~= 48300 -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
+		or (eventType == "SPELL_DAMAGE" and maybeSpellId ~= 48300) -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
 		or eventType == "SPELL_MISSED"
-		or eventType == "SPELL_AURA_REMOVED" and Contains(combatKeepers, select(1, ...))) then
+		or (eventType == "SPELL_AURA_REMOVED" and Contains(combatKeepers, maybeSpellId))) then
 			etype = TYPE_AGGRESSIVE
 	elseif (eventType == "SPELL_HEAL") then
 		etype = TYPE_FRIENDLY
 	elseif (eventType == "SPELL_DISPEL"
-			or eventType == "SPELL_AURA_APPLIED" and select(1, ...) ~= 57934 -- tricks of the trade
 			or eventType == "SPELL_AURA_APPLIED_DOSE"
+			or eventType == "SPELL_AURA_APPLIED"
 			or eventType == "SPELL_AURA_REFRESH") then 
 		etype = TYPE_UNDEFINED
 	end
 	
-	if etype == nil then return end
+	-- dbgInfo.etype = etype
+	if etype == nil then 
+		-- log:Log(6)
+		return 
+	end
 
 	if (etype == TYPE_UNDEFINED) then
 		local sourceTargetType = KnownTargetType(sourceName)
@@ -815,11 +842,14 @@ function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceNam
 		if (destinationTargetType == nil) then return end
 		if not UnitAffectingCombat(destinationTargetType) then return end
 	end
+	
+	-- log:Log(6)
+	
 	for index, frame in pairs(ctFrames) do
 		local frameTargetName = UnitName(frame.TargetType)
 		
 		if (frameTargetName == sourceName or etype == TYPE_AGGRESSIVE and frameTargetName == destName) then
-			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, select(1, ...))
+			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, maybeSpellId)
 			OnCombatEnter(frame, keepInCombat)
 		end
 	end
@@ -873,7 +903,12 @@ local function UpdateFrameCombatStatus(frame)
 end
 
 local function UpdateFrame(frame)
-	if not UnitExists(frame.TargetType) or not UnitIsPlayer(frame.TargetType) then
+	 -- if not UnitIsPlayer(frame.TargetType) then
+		-- frame:Hide();
+		-- return;
+	 -- end
+
+	if not UnitExists(frame.TargetType)  then
 		frame:Hide()
 		return
 	else
@@ -881,12 +916,15 @@ local function UpdateFrame(frame)
 	end
 	UpdateFrameCombatStatus(frame)
 	
-	if FrameShouldBeVisible(frame) then
-		frame.t:SetAlpha(0.9)
+	if UnitIsConnected(frame.TargetType) and UnitExists(frame.TargetType) then
+		if FrameShouldBeVisible(frame) then
+			frame.t:SetAlpha(0.9)
+		else
+			frame.t:SetAlpha(0.2)
+		end
 	else
-		frame.t:SetAlpha(0.2)
+		frame.t:SetAlpha(0)
 	end
-	
 end
 
 local function OnUpdate(self)
