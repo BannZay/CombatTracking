@@ -1,4 +1,4 @@
-## Interface: 30400
+## Interface: 30402
 ## Title: CombatTracking
 ## SavedVariables: CombatTrackingDB
 ## Author: BannZay
