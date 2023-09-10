@@ -1,7 +1,5 @@
 CombatTracking = {}
 CombatTrackingDB = nil
--- local log = LibStub("LibLogger-1.0"):New("CombatTracking");
--- log:SetMaximumLogLevel(0);
 
 local Setting_Lock 				= "lock"
 local Setting_ShowTextAlways 	= "showTextAlways"
@@ -9,7 +7,6 @@ local Setting_Scale 			= "scale"
 local Setting_TextureId 		= "textureId"
 local Setting_Inverted 			= "inverted"
 local Setting_PlaySounds 		= "playSounds"
-local Setting_AttachedToGladius = "attachedToGladius"
 
 local CombatDuration = 5.5
 local Settings = nil
@@ -17,7 +14,7 @@ local Settings = nil
 local ctFrames = {}
 local textureSize = 40
 
-local noCombatAbilities = 
+local combatImmuneAbilities = 
 {
 	51724, -- Sap
 	453, -- Mind Soothe
@@ -131,22 +128,6 @@ local function Contains(tbl, value)
 	return Find(tbl, function(x) return x == value end) ~= nil
 end
 
-local function BooleanToString(bool)
-	if bool then
-		return "true"
-	else 
-		return "false"
-	end
-end
-
-local function Switch(value, ifTrue, ifFalse)
-	if (value) then
-		return ifTrue
-	else
-		return ifFalse
-	end
-end
-
 
 ---------------------------------------------------------------- DB settings ----------------------------------------------------------------
 
@@ -168,13 +149,38 @@ end
 ---------------------------------------------------------------- Printing ----------------------------------------------------------------
 
 
-local function Print(text)
+local function PrintToChat(text)
 	ChatFrame1:AddMessage(string.format("%s", text), 10, 20, 0)
 end
 
-local function PrintMessage(text)
-	Print(string.format("|cffFF0084Combat Tracking|r - %s", text))
+local function PrintAddonMessage(text)
+	PrintToChat(string.format("|cffFF0084Combat Tracking|r - %s", text))
 end
+
+local function PrintDebug(...)
+	if true then return end
+	local argsString = ""
+	for i, arg in pairs({...}) do
+		if arg == nil then
+			arg = "nil"
+		end
+
+		if type(arg) == "boolean" then
+			arg = arg and "true" or "false"
+		end
+
+		argsString = argsString .. " " .. arg
+	end
+
+	local msg = string.format("|cffFF0084Combat Tracking Debug|r - %s", argsString)
+	PrintToChat(msg)
+end
+
+local function DebugCLEU(timestamp, eventType, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, _, spellId, spellName, spellSchool, extraSpellId, extraSpellName, extraSpellSchool)
+	if destGUID ~= UnitGUID("player") then return end
+	return nil
+end
+
 
 
 ---------------------------------------------------------------- Frame settings ----------------------------------------------------------------
@@ -236,62 +242,6 @@ local function SetFramesTexture(textureId)
 	end
 end
 
-
----------------------------------------------------------------- Gladius ----------------------------------------------------------------
-
-
-local function ShowGladius(value)
-	if Gladius ~= nil then
-		
-		if select(2, IsInInstance()) ~= "arena" then -- showing gladius on arena leads to not apearing gladius on combat start
-			local gladiusIsVisible = Gladius.frame ~= nil and Gladius.frame:IsShown()
-			
-			if value and not gladiusIsVisible then
-				Gladius:ToggleFrame(5)
-			elseif not value and gladiusIsVisible then
-				Gladius:HideFrame()
-			end
-		end
-	end
-end
-
-local function OnGladiusFrameAppeared(arg1)
-	if Settings[Setting_AttachedToGladius] then
-		for n = 1, Gladius.currentBracket do
-			local gladiusButtonFrame = _G["GladiusButtonFrame"..n]
-			
-			-- Setup our frame
-			local ctFrame = GetFrameByTarget("Arena"..n)
-			ctFrame:ClearAllPoints()
-			local size = _G["GladiusButton"..n]:GetHeight() 
-			ctFrame:SetPoint("TopRight",gladiusButtonFrame , "TopLeft", -4, 0)
-			-- ctFrame:SetWidth(size)
-			-- ctFrame:SetHeight(size)
-			-- ctFrame:SetScale(Gladius.frame:GetScale())
-			ctFrame.t:SetAllPoints()
-			SetVisibility(ctFrame, true)
-			
-			-- move Gladius frames to prevent overlapping
-			for _, itemToCheck in pairs({gladiusButtonFrame.castBar, gladiusButtonFrame.spellCooldownFrame, gladiusButtonFrame.drCooldownFrame}) do
-				if (itemToCheck ~= nil and itemToCheck:IsVisible()) then
-					for i=1,itemToCheck:GetNumPoints() do
-						point, relativeTo, relativePoint, xOfs, yOfs = itemToCheck:GetPoint(i)
-						if (relativeTo == gladiusButtonFrame and relativePoint:match("LEFT")) then
-							itemToCheck:ClearAllPoints()
-							itemToCheck:SetPoint(point, relativeTo, relativePoint, xOfs - (size + 5), 0)
-						end
-					end
-				end
-			end
-		end
-		
-		for i = Gladius.currentBracket+1, 5 do
-			SetVisibility(GetFrameByTarget("Arena"..i), false)
-		end
-	end
-end
-
-
 ---------------------------------------------------------------- Frames management ----------------------------------------------------------------
 
 
@@ -328,9 +278,7 @@ end
 
 local function OnMouseDown(self, button)
 	if button == "LeftButton" then
-		--if (string.sub(self.TargetType, 0, 5) ~= "Arena" or not Settings[Setting_AttachedToGladius]) then
 			self:StartMoving()
-		--end
 	elseif button == "RightButton" then
 		if (IsLeftControlKeyDown()) then
 			if (not GetFrameHidden(self)) then
@@ -481,14 +429,7 @@ local function SetTextVisibility(targetVisibility, musicVisibility)
 	end
 end
 
-local function SetLock(value, doNotReloadGladius)
-	
-	if doNotReloadGladius ~= true then
-		if Settings[Setting_AttachedToGladius] then
-			ShowGladius(not value)
-		end
-	end
-	
+local function SetLock(value)
 	for i = 1, #ctFrames do
 		local frame = ctFrames[i]
 		
@@ -513,7 +454,7 @@ local function OnCombatEnter(frame, keepInCombat)
 	frame.combatKeeped = keepInCombat
 	
 	if keepInCombat then
-		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, frame.CombatStartedAt + 9999999)
+		frame.CooldownFrame:SetCooldown(0, 0)
 	else
 		frame.CooldownFrame:SetCooldown(frame.CombatStartedAt, CombatDuration)
 	end
@@ -566,16 +507,11 @@ local function Init()
 	InitSetting(Setting_TextureId, 1)
 	InitSetting(Setting_Inverted, false)
 	InitSetting(Setting_PlaySounds, true)
-	InitSetting(Setting_AttachedToGladius, true)
 	
 	for targetName, frameInfo in pairs(targetsDefaultSettings) do
 		local parentFrame = frameInfo.parentFrame
 		local item = LoadFrame(targetName, GetFrameByTarget(targetName))
 		ReplaceItem(item)
-	end
-	
-	if IsAddOnLoaded("Gladius") then
-		hooksecurefunc(Gladius, "UpdateFrame", OnGladiusFrameAppeared)
 	end
 	
 	SetLock(Settings[Setting_Lock], true)
@@ -602,26 +538,6 @@ local function SetFramesScale(scale)
 	end
 end
 
-local function AttachedToGladiusChanged(value)
-	for i =1,5 do
-		local f = GetFrameByTarget("Arena"..i)
-		
-		if (not value) then
-			LoadFrame(f.TargetType, f)
-		end
-		
-		-- f:EnableMouse(not value)
-	end
-
-	if (Settings[Setting_Lock] == false) then
-		ShowGladius(false)
-		
-		if (Settings[Setting_AttachedToGladius]) then
-			ShowGladius(true)
-		end
-	end
-end
-
 local function SuppressFirstSoundTrigger()
 	for i=1,#ctFrames do
 		ctFrames[i].New = true
@@ -632,7 +548,6 @@ local onOptionChanged =
 {
 	[Setting_Lock] = SetLock,
 	[Setting_ShowTextAlways] = function(value) SetTextVisibility(not Settings[Setting_Lock] or value, not Settings[Setting_Lock]) end,
-	[Setting_AttachedToGladius] = AttachedToGladiusChanged,
 	[Setting_Inverted] = SuppressFirstSoundTrigger,
 	[Setting_PlaySounds] = nil,
 	[Setting_Scale] = SetFramesScale,
@@ -708,7 +623,7 @@ local function BuildBlizzardOptions()
 	{
 		type = "range",
 		name = "Frames scale",
-		desc = "Does not affect arenaframes integrated into gladius",
+		desc = "",
 		min =.1,
 		max = 5,
 		step =.03,
@@ -733,15 +648,6 @@ local function BuildBlizzardOptions()
 		order = 7,
 		func = Reset 
 	}
-	
-	options.args[Setting_AttachedToGladius] =
-	{
-		type = "toggle",
-		name = "Integrate into gladius",
-		desc = "Attach addon arenaframes to gladius arenaframes",
-		order = 99,
-		disabled = function() return Gladius == nil end
-	}
 
 	return options
 end
@@ -757,8 +663,8 @@ local combatKeepers =
 
 ---------------------------------------------------------------- Events --------------------------------------------------------------
 
-function KnownTargetType(unitName)
-	local frame = Find(ctFrames, function(x) return UnitName(x.TargetType) == unitName end)
+local function FindTargetIdByGuid(unitGuid)
+	local frame = Find(ctFrames, function(x) return UnitGUID(x.TargetType) == unitGuid end)
 	
 	if (frame ~= nil) then
 		return frame.TargetType
@@ -771,7 +677,7 @@ local scanTool = CreateFrame( "GameTooltip", "ScanTooltip", nil, "GameTooltipTem
 scanTool:SetOwner( WorldFrame, "ANCHOR_NONE" )
 local scanText = _G["ScanTooltipTextLeft2"] -- This is the line with <[Player]'s Pet>
 
-function getPetOwner(petName)
+local function getPetOwner(petName)
    scanTool:ClearLines()
    scanTool:SetUnit(petName)
    local ownerText = scanText:GetText()
@@ -781,80 +687,70 @@ function getPetOwner(petName)
    return owner -- This is the pet's owner
 end
 
-local TYPE_AGGRESSIVE = 1
+local TYPE_HOSTILE = 1
 local TYPE_UNDEFINED = 2
 local TYPE_FRIENDLY = 3
 
-function COMBAT_LOG_EVENT_UNFILTERED(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, maybeSpellId)
-	-- local log, dbgInfo = log:CreateLocalLogger();
-	-- dbgInfo.eventType = eventType;
-	-- dbgInfo.maybeSpellId = maybeSpellId;
-	-- dbgInfo.sourceName = sourceName;
-	-- dbgInfo.destName = destName;
+local function COMBAT_LOG_EVENT_UNFILTERED()
+	local timestamp, eventType, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID,
+		 destName, destFlags, _, spellId, spellName, spellSchool, extraSpellId, extraSpellName, extraSpellSchool = CombatLogGetCurrentEventInfo()
 	
-	if (sourceName == destName) then return end
-	if type(maybeSpellId) == "number" then
-		for _, noCombatSpellId in pairs(noCombatAbilities) do
-			if maybeSpellId == noCombatSpellId then
-				return;
-			end
-		end
+	DebugCLEU(timestamp, eventType, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, _, spellId, spellName, spellSchool, extraSpellId, extraSpellName, extraSpellSchool)
+	
+	if (spellId == 413764) -- Deep wound logged as spell damage even though it is periodic, it should be safe to ignore proc completely
+		 then	
+		return
 	end
-	
+
 	local etype = nil
 
 	if (eventType == "RANGE_MISSED" 
-		or eventType == "RANGE_DAMAGE" 
-		or eventType == "SWING_MISSED"
-		or eventType == "SWING_DAMAGE"
-		or (eventType == "SPELL_DAMAGE" and maybeSpellId ~= 48300) -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
-		or eventType == "SPELL_MISSED"
-		or (eventType == "SPELL_AURA_REMOVED" and Contains(combatKeepers, maybeSpellId))) then
-			etype = TYPE_AGGRESSIVE
-	elseif (eventType == "SPELL_HEAL") then
-		etype = TYPE_FRIENDLY
-	elseif (eventType == "SPELL_DISPEL"
-			or eventType == "SPELL_AURA_APPLIED_DOSE"
-			or eventType == "SPELL_AURA_APPLIED"
-			or eventType == "SPELL_AURA_REFRESH") then 
-		etype = TYPE_UNDEFINED
-	end
+ 		or eventType == "RANGE_DAMAGE" 
+ 		or eventType == "SWING_MISSED"
+ 		or eventType == "SWING_DAMAGE"
+		or (eventType == "SPELL_DAMAGE" and spellId ~= 48300) -- plague ticks treated as SPELL_DAMAGE instead of PERIODIC_DAMAGE, ignore it
+ 		or eventType == "SPELL_MISSED"
+		or (eventType == "SPELL_AURA_REMOVED" and Contains(combatKeepers, spellId))) then
+			etype = TYPE_HOSTILE
+ 	elseif (eventType == "SPELL_HEAL") then
+ 		etype = TYPE_FRIENDLY
+ 	elseif (eventType == "SPELL_DISPEL"
+ 			or eventType == "SPELL_AURA_APPLIED_DOSE"
+ 			or eventType == "SPELL_AURA_APPLIED"
+ 			or eventType == "SPELL_AURA_REFRESH") then 
+ 		etype = TYPE_UNDEFINED
+ 	end
 	
-	-- dbgInfo.etype = etype
-	if etype == nil then 
-		-- log:Log(6)
-		return 
-	end
+	if etype == nil then PrintDebug("Ignored: event type", eventType) return end
+	if (sourceGUID == destGUID) then PrintDebug("Ignored: self cast", eventType, spellId, spellName, sourceGUID, destGUID) return end
 
 	if (etype == TYPE_UNDEFINED) then
-		local sourceTargetType = KnownTargetType(sourceName)
-		local destinationTargetType = KnownTargetType(destName)
-		if (sourceTargetType == nil or destinationTargetType == nil) then return end
+		local sourceTargetType = FindTargetIdByGuid(sourceGUID)
+		local destinationTargetType = FindTargetIdByGuid(destGUID)
+		if (sourceTargetType == nil or destinationTargetType == nil) then PrintDebug("Ignored: Can't verify relationship between following targets:", sourceName, destName) return end
 		if UnitIsEnemy(sourceTargetType, destinationTargetType)  then
-			etype = TYPE_AGGRESSIVE
+			etype = TYPE_HOSTILE
 		else
 			etype = TYPE_FRIENDLY
 		end
 	end
 
 	if (etype == TYPE_FRIENDLY) then
-		local destinationTargetType = KnownTargetType(destName)
-		if (destinationTargetType == nil) then return end
-		if not UnitAffectingCombat(destinationTargetType) then return end
+		local destinationTargetType = FindTargetIdByGuid(destGUID)
+		if (destinationTargetType == nil) then PrintDebug("Ignored: Unknown target's combat status", destName) return end
+		if not UnitAffectingCombat(destinationTargetType) then PrintDebug("Ignored: target is not in combat", destName) return end
 	end
-	
-	-- log:Log(6)
-	
+
 	for index, frame in pairs(ctFrames) do
-		local frameTargetName = UnitName(frame.TargetType)
+		local frameTargetGuid = UnitGUID(frame.TargetType)
 		
-		if (frameTargetName == sourceName or etype == TYPE_AGGRESSIVE and frameTargetName == destName) then
-			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, maybeSpellId)
+		if (frameTargetGuid == sourceGUID or (etype == TYPE_HOSTILE and frameTargetGuid == destGUID)) then
+			local keepInCombat = eventType == "SPELL_AURA_APPLIED" and Contains(combatKeepers, spellId)
+			
+			PrintDebug("Refreshed combat for", destName, keepInCombat)
 			OnCombatEnter(frame, keepInCombat)
 		end
 	end
-	
-	
 end
 
 ---------------------------------------------------------------- Main ----------------------------------------------------------------

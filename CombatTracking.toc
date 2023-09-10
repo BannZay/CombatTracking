@@ -1,9 +1,9 @@
-## Interface: 30300
+## Interface: 30400
 ## Title: CombatTracking
 ## SavedVariables: CombatTrackingDB
 ## Author: BannZay
 ## Notes: Tracks combat status
-## Version: v2.3
+## Version: v1.0
 ## DefaultState: Enabled
 ## OptionalDeps: Ace3, LibStub, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
 
