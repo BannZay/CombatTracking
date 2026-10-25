@@ -572,7 +572,7 @@ function CT:UpdateTestIcon(icon, now)
 		start = now - (now + icon.index) % period
 	end
 	SetSwipe(icon, start, start and "timer")
-	SetTimer(icon, start, "timer", now)
+	SetTimer(icon, start, start and "timer", now)
 end
 
 -- Pet -> owner from the unit tokens; attacking a pet puts its owner in combat too.
