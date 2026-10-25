@@ -13,6 +13,8 @@
 --   Death only drop the unit's own combat state; its opponents stay in combat with it.
 -- * Attacking a pet also puts its owner in combat with the attacker (Unit::AtTargetAttacked): melee
 --   swings, and spells that land (not misses).
+-- * Some hits are not in the combat log (Mass Dispel on an enemy without buffs); the caster's cast
+--   finishing stands for them.
 CombatTracking = CombatTracking or {}
 local CT = CombatTracking
 local Core = {}
@@ -52,6 +54,13 @@ local combatKeeperSpellIds = {
 	605, -- Mind Control
 	48045, -- Mind Sear
 }
+-- Spells whose hits on enemies are not in the combat log. Mass Dispel hits enemies with a hidden
+-- triggered spell (32592), so an enemy without buffs gets no event, and a spell with a cast time
+-- logs no SPELL_CAST_SUCCESS (the client only logs it for instant spells). The cast finishing
+-- (UNIT_SPELLCAST_SUCCEEDED) stands for those hits.
+local hiddenHitSpellIds = {
+	32375, -- Mass Dispel
+}
 
 local function NameSet(ids)
 	local set = {}
@@ -65,6 +74,7 @@ end
 function Core.BuildSpellSets()
 	Core.ignoredDamageSpells = NameSet(ignoredDamageSpellIds)
 	Core.combatKeepers = NameSet(combatKeeperSpellIds)
+	Core.hiddenHitSpells = NameSet(hiddenHitSpellIds)
 end
 Core.BuildSpellSets()
 
@@ -231,6 +241,13 @@ function Tracker:OnEnter(guid, now)
 	if not self:HasLiveContacts(guid, now) then
 		Link(self.contacts, guid, "flag", now, true, true)
 	end
+end
+
+-- The unit finished casting a spell whose enemy hits are not logged (Core.hiddenHitSpells): it
+-- refreshes the unit's combat with the enemies it hit, which are unknown. Estimated: the spell may
+-- have hit no enemy.
+function Tracker:OnHiddenHit(guid, now)
+	Link(self.contacts, guid, "hidden", now, true, true)
 end
 
 -- The unit left combat. Returns the measured combat duration when the leave was a plain timer

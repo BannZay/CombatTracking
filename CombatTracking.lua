@@ -730,6 +730,11 @@ local events = {
 			spellId, spellName, missType)
 	end,
 	UNIT_FLAGS = function(unit) CT:OnUnitFlags(unit) end,
+	UNIT_SPELLCAST_SUCCEEDED = function(unit, spellName)
+		if not Core.hiddenHitSpells[spellName] then return end
+		local guid = UnitGUID(unit)
+		if guid then CT.tracker:OnHiddenHit(guid, GetTime()) end
+	end,
 	PLAYER_TARGET_CHANGED = RefreshNow,
 	PLAYER_FOCUS_CHANGED = RefreshNow,
 	PARTY_MEMBERS_CHANGED = function()
