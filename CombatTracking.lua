@@ -22,8 +22,8 @@ CT.TEXTURES = {
 
 CT.SOUND_BELL = "CombatTracking Bell"
 CT.SOUND_BEEP = "CombatTracking Beep"
-LSM:Register("sound", CT.SOUND_BELL, "Interface\\AddOns\\CombatTracking\\bell.wav")
-LSM:Register("sound", CT.SOUND_BEEP, "Interface\\AddOns\\CombatTracking\\beep.mp3")
+LSM:Register("sound", CT.SOUND_BELL, "Interface\\AddOns\\CombatTracking\\sounds\\bell.wav")
+LSM:Register("sound", CT.SOUND_BEEP, "Interface\\AddOns\\CombatTracking\\sounds\\beep.mp3")
 
 local function UnitDefaults(enabled, sound, anchor, point, relativePoint, x, y)
 	return { enabled = enabled, sound = sound, anchor = anchor, point = point, relativePoint = relativePoint, x = x, y = y }
