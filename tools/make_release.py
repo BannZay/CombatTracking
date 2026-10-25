@@ -5,7 +5,7 @@ files that git does not ignore. With a commit (a hash, tag, branch or HEAD) it i
 commit instead, and uncommitted changes are left out.
 
 The zip holds a single CombatTracking folder, ready to be unpacked into Interface/AddOns.
-Development files (tools, CLAUDE.md, dot files) are left out. The version in the file name comes
+Development files (tools, screenshots, CLAUDE.md, dot files) are left out. The version in the file name comes
 from the "## Version" line of CombatTracking.toc in the same source.
 
 Usage: python tools/make_release.py [commit] [-o output folder, default: dist]
@@ -19,7 +19,7 @@ import time
 import zipfile
 
 ADDON = 'CombatTracking'
-EXCLUDE = {'tools', 'CLAUDE.md', 'dist'}
+EXCLUDE = {'tools', 'screenshots', 'CLAUDE.md', 'dist'}
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 

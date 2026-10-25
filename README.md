@@ -1,8 +1,21 @@
 # CombatTracking
 World of Warcraft addon (3.3.5a)
 Tracks combat status of your target, focus, party members and arena enemies (arena1, arena2, etc)
-![изображение](https://user-images.githubusercontent.com/17499770/155911361-cfecfa32-78d8-42d6-8e0d-47ecca6e4cd4.png)
-![изображение](https://user-images.githubusercontent.com/17499770/155911408-d6497328-c804-4ab9-99fd-37403359a289.png)
+
+Latest version: https://github.com/BannZay/CombatTracking/releases
+
+![Target, focus and arena icons attached to Gladius](screenshots/overview.png)
+
+Bright icons are out of combat (Arena2, focus: they can be sapped). Dimmed icons are in combat; the swipe and the
+"Show timer" countdown show when they can leave it.
+
+| Unit names on | Unlocked (`/ct lock`) |
+|---|---|
+| ![Icons with unit names](screenshots/names.png) | ![Unlocked icons with their status](screenshots/unlocked.png) |
+
+| General | Sounds | Units |
+|---|---|---|
+| ![General options](screenshots/options_general.png) | ![Sound options](screenshots/options_sounds.png) | ![Unit options](screenshots/options_units.png) |
 
 ## How it works
 - Each tracked unit gets an icon. By default it is bright while the unit is **out of combat** (for example: it can
@@ -70,8 +83,8 @@ sets), not the generated file.
 ## Release
 `python tools/make_release.py` packs the working directory into `dist/CombatTracking-<version>.zip` (the version
 comes from `## Version` in `CombatTracking.toc`): tracked files as they are now, plus new files git does not ignore.
-The zip holds one `CombatTracking` folder to unpack into `Interface/AddOns`; `tools`, `CLAUDE.md` and dot files are
-left out.
+The zip holds one `CombatTracking` folder to unpack into `Interface/AddOns`; `tools`, `screenshots`,
+`CLAUDE.md` and dot files are left out.
 - `python tools/make_release.py <commit>` packs a commit (hash, tag or branch) instead, without uncommitted changes.
 - `python tools/make_release_head.py` packs the last commit (it calls `make_release.py HEAD`).
 - `-o <folder>` sets a different output folder.
