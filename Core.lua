@@ -11,6 +11,8 @@
 -- * Spells without initial aggro (Sap, Hunter's Mark, ...) only count on a target already in combat.
 -- * Death and "unattackable" auras end all references of a unit on both sides. Vanish and Feign
 --   Death only drop the unit's own combat state; its opponents stay in combat with it.
+-- * Attacking a pet also puts its owner in combat with the attacker (Unit::AtTargetAttacked): melee
+--   swings, and spells that land (not misses).
 CombatTracking = CombatTracking or {}
 local CT = CombatTracking
 local Core = {}
@@ -85,6 +87,13 @@ function Core.Classify(eventType)
 	return eventKinds[eventType]
 end
 
+-- Hostile events after which the server engages the owner of the target (Unit::AtTargetAttacked).
+local engagesOwner = {
+	SWING_DAMAGE = true, SWING_MISSED = true, RANGE_DAMAGE = true,
+	SPELL_DAMAGE = true, SPELL_DRAIN = true, SPELL_LEECH = true, SPELL_INTERRUPT = true, SPELL_STOLEN = true,
+	SPELL_DISPEL = true, SPELL_AURA_APPLIED = true, SPELL_AURA_REFRESH = true, SPELL_AURA_APPLIED_DOSE = true,
+}
+
 local function Reaction(flags)
 	if not flags then return nil end
 	if bit.band(flags, REACTION_HOSTILE) ~= 0 then return "hostile" end
@@ -111,6 +120,7 @@ function Core.NewTracker(env)
 		keep = {}, -- guid -> time a combat keeper channel started
 		suppressedAt = {}, -- guid -> time of Vanish, Feign Death, ...
 		deadAt = {}, -- guid -> time of UNIT_DIED, until confirmed (not a Feign Death)
+		ownerOf = {}, -- pet guid -> owner guid
 	}, Tracker)
 end
 
@@ -120,6 +130,11 @@ end
 
 function Tracker:ClearTracked()
 	for k in pairs(self.tokens) do self.tokens[k] = nil end
+end
+
+-- Pets with a known owner (from unit tokens such as arenapet1 / arena1).
+function Tracker:SetOwners(ownerOf)
+	self.ownerOf = ownerOf
 end
 
 function Tracker:IsTracked(guid)
@@ -333,6 +348,10 @@ function Tracker:OnCombatLog(now, eventType, srcGUID, srcFlags, dstGUID, dstFlag
 		if eventType == "SPELL_DAMAGE" and Core.ignoredDamageSpells[spellName] then return end
 		if NO_AGGRO[spellId] and not self:IsEngaged(dstGUID, now) then return end
 		self:Contact(srcGUID, dstGUID, now, srcPlayer and dstPlayer)
+		local owner = self.ownerOf[dstGUID]
+		if owner and owner ~= srcGUID and engagesOwner[eventType] then
+			self:Contact(srcGUID, owner, now, srcPlayer)
+		end
 		if eventType == "SPELL_AURA_APPLIED" and Core.combatKeepers[spellName] then
 			self.keep[srcGUID] = now
 		end

@@ -380,9 +380,23 @@ local function SetSwipe(icon, start, mode)
 	end
 end
 
+-- A unit still in combat well after its timer ran out had a contact we did not see (out of combat
+-- log range): its timer is unknown.
+local OVERDUE = 0.5
+
 local function SetTimer(icon, start, mode, now)
-	local left = CT.db.profile.showTimer and Core.SwipeRemaining(start, mode, now)
-	icon.timer:SetText(left and format("%.0f", math.ceil(left)) or "")
+	if not CT.db.profile.showTimer then
+		icon.timer:SetText("")
+		return
+	end
+	local left = Core.SwipeRemaining(start, mode, now)
+	if left then
+		icon.timer:SetText(format("%.0f", math.ceil(left)))
+	elseif mode == "timer" and now > start + Core.duration + OVERDUE then
+		icon.timer:SetText("?")
+	else
+		icon.timer:SetText("")
+	end
 end
 
 ------------------------------------------------------------------------
@@ -550,6 +564,23 @@ function CT:UpdateTestIcon(icon, now)
 	SetTimer(icon, start, "timer", now)
 end
 
+-- Pet -> owner from the unit tokens; attacking a pet puts its owner in combat too.
+local petTokens = { { "pet", "player" } }
+for i = 1, 4 do petTokens[#petTokens + 1] = { "partypet" .. i, "party" .. i } end
+for i = 1, 5 do petTokens[#petTokens + 1] = { "arenapet" .. i, "arena" .. i } end
+for i = 1, 40 do petTokens[#petTokens + 1] = { "raidpet" .. i, "raid" .. i } end
+
+function CT:UpdateOwners()
+	local ownerOf = {}
+	local raidMembers = GetNumRaidMembers()
+	for i, pair in ipairs(petTokens) do
+		if i > 10 + raidMembers then break end
+		local pet = UnitGUID(pair[1])
+		if pet then ownerOf[pet] = UnitGUID(pair[2]) end
+	end
+	self.tracker:SetOwners(ownerOf)
+end
+
 -- Updates all icons from their units. Runs every TICK and on unit changes.
 function CT:Refresh()
 	if not self.db or not self.icons[1] or not self.locked then return end
@@ -566,6 +597,7 @@ function CT:Refresh()
 	if now - (self.lastPrune or 0) >= 1 then
 		self.lastPrune = now
 		self.tracker:Prune(now)
+		self:UpdateOwners()
 		for guid, t in pairs(self.soundAt) do
 			if now - t > 1 then self.soundAt[guid] = nil end
 		end
@@ -694,8 +726,15 @@ local events = {
 	UNIT_FLAGS = function(unit) CT:OnUnitFlags(unit) end,
 	PLAYER_TARGET_CHANGED = RefreshNow,
 	PLAYER_FOCUS_CHANGED = RefreshNow,
-	PARTY_MEMBERS_CHANGED = RefreshNow,
-	ARENA_OPPONENT_UPDATE = RefreshNow,
+	PARTY_MEMBERS_CHANGED = function()
+		CT:UpdateOwners()
+		CT:Refresh()
+	end,
+	ARENA_OPPONENT_UPDATE = function()
+		CT:UpdateOwners()
+		CT:Refresh()
+	end,
+	UNIT_PET = function() CT:UpdateOwners() end,
 	PLAYER_ENTERING_WORLD = function()
 		Core.ResetClock()
 		CT:Refresh()
