@@ -74,6 +74,7 @@ CT.playerState = {} -- the player's combat state for measuring, without a Player
 CT.soundAt = {} -- guid -> time its last sound played
 CT.tracker = Core.NewTracker({
 	UnitIsEnemy = function(a, b) return UnitIsEnemy(a, b) end,
+	UnitCanAttack = function(a, b) return UnitCanAttack(a, b) end,
 	UnitAffectingCombat = function(unit) return UnitAffectingCombat(unit) end,
 })
 
@@ -547,6 +548,10 @@ function CT:UpdateIcon(icon, now, precise)
 	local start, mode
 	if icon.state.inCombat then
 		start, mode = tracker:GetSwipe(guid, now)
+		-- still in combat after the timer ran out: a contact was not in the combat log
+		if mode == "timer" and tracker:ExplainOverdue(guid, start, now) then
+			start, mode = tracker:GetSwipe(guid, now)
+		end
 	end
 	SetSwipe(icon, start, mode)
 	SetTimer(icon, start, mode, now)
@@ -733,7 +738,7 @@ local events = {
 	UNIT_SPELLCAST_SUCCEEDED = function(unit, spellName)
 		if not Core.hiddenHitSpells[spellName] then return end
 		local guid = UnitGUID(unit)
-		if guid then CT.tracker:OnHiddenHit(guid, GetTime()) end
+		if guid then CT.tracker:OnHiddenHit(guid, unit, GetTime()) end
 	end,
 	PLAYER_TARGET_CHANGED = RefreshNow,
 	PLAYER_FOCUS_CHANGED = RefreshNow,

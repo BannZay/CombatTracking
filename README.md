@@ -16,8 +16,10 @@ Tracks combat status of your target, focus, party members and arena enemies (are
   - Healing or buffing a unit in combat puts the helper in combat with that unit's opponents.
   - Spells without initial aggro (Sap, Hunter's Mark, Blessing of Wisdom, ...) only count on a target already in
     combat. The spell list is generated from the game data (`tools/gen_spelldata.py`).
-  - Mass Dispel refreshes its caster's combat when the cast finishes, also when it hits enemies without buffs
-    (the game logs nothing for those hits).
+  - Mass Dispel on a unit without buffs refreshes combat, but the game logs nothing for that hit and gives no
+    positions. When the caster or one of its enemies is still in combat after its timer ran out, a Mass Dispel
+    finished since its last known contact explains it: the timer continues from the Mass Dispel. In arena every
+    caster has a unit token, so the Mass Dispel's time is exact.
   - Fighting NPCs has no timer: the swipe stays full.
   - The exact duration is measured on each realm from observed combats, mostly your own (options: General >
     Combat timer), and can be set by hand.
@@ -45,5 +47,6 @@ Tracks combat status of your target, focus, party members and arena enemies (are
 ## Limitations
 - Only unit tokens are tracked (player, target, focus, party1-4, arena1-5). In battlegrounds there are no arena
   tokens, so only target and focus work there.
-- Enemies hit by Mass Dispel without losing a buff are not known (the game logs nothing for them and gives no
-  positions). If one of them was already in combat, its timer runs out early and shows "?" until it leaves combat.
+- Which units a Mass Dispel hit is not known, so the timer of a unit it hit only switches to the Mass Dispel once
+  its old timer has run out (0.3 s later). A Mass Dispel from a caster without a unit token (outside arena) is
+  not seen.

@@ -13,8 +13,8 @@
 --   Death only drop the unit's own combat state; its opponents stay in combat with it.
 -- * Attacking a pet also puts its owner in combat with the attacker (Unit::AtTargetAttacked): melee
 --   swings, and spells that land (not misses).
--- * Some hits are not in the combat log (Mass Dispel on an enemy without buffs); the caster's cast
---   finishing stands for them.
+-- * Some hits are not in the combat log (Mass Dispel on an enemy without buffs). When the caster or
+--   one of its enemies is still in combat after its timer ran out, such a cast explains it.
 CombatTracking = CombatTracking or {}
 local CT = CombatTracking
 local Core = {}
@@ -30,6 +30,8 @@ Core.SUPPRESS_WINDOW = 1 -- leaving combat this soon after Vanish & co. is not a
 -- Feign Death also logs UNIT_DIED (the client logs a death when the "dead" flag is set). A death is
 -- final once no Feign Death aura came within this time.
 Core.DEATH_CONFIRM = 1
+-- A unit still in combat this long after its timer ran out had a contact the combat log did not show.
+Core.OVERDUE_GRACE = 0.3
 
 -- duration measurement: gaps between the last contact and the combat flag dropping
 Core.SAMPLE_MIN, Core.SAMPLE_MAX = 4, 7
@@ -54,10 +56,10 @@ local combatKeeperSpellIds = {
 	605, -- Mind Control
 	48045, -- Mind Sear
 }
--- Spells whose hits on enemies are not in the combat log. Mass Dispel hits enemies with a hidden
--- triggered spell (32592), so an enemy without buffs gets no event, and a spell with a cast time
--- logs no SPELL_CAST_SUCCESS (the client only logs it for instant spells). The cast finishing
--- (UNIT_SPELLCAST_SUCCEEDED) stands for those hits.
+-- Spells whose hits on enemies are not in the combat log. Mass Dispel hits enemies with a triggered
+-- spell (32592) that the server sends as hidden (cast flag 0x1), so the client logs no hit and an
+-- enemy without buffs gets no event at all; the spell with a cast time logs no SPELL_CAST_SUCCESS
+-- either. The cast finishing (UNIT_SPELLCAST_SUCCEEDED) gives the time of those hits.
 local hiddenHitSpellIds = {
 	32375, -- Mass Dispel
 }
@@ -121,7 +123,7 @@ end
 local Tracker = {}
 Tracker.__index = Tracker
 
--- env.UnitIsEnemy(unitA, unitB), env.UnitAffectingCombat(unit)
+-- env.UnitIsEnemy(unitA, unitB), env.UnitCanAttack(unitA, unitB), env.UnitAffectingCombat(unit)
 function Core.NewTracker(env)
 	return setmetatable({
 		env = env,
@@ -131,6 +133,7 @@ function Core.NewTracker(env)
 		suppressedAt = {}, -- guid -> time of Vanish, Feign Death, ...
 		deadAt = {}, -- guid -> time of UNIT_DIED, until confirmed (not a Feign Death)
 		ownerOf = {}, -- pet guid -> owner guid
+		hiddenCasts = {}, -- { t, maybe = set of guids it may have hit }, oldest first
 	}, Tracker)
 end
 
@@ -243,11 +246,29 @@ function Tracker:OnEnter(guid, now)
 	end
 end
 
--- The unit finished casting a spell whose enemy hits are not logged (Core.hiddenHitSpells): it
--- refreshes the unit's combat with the enemies it hit, which are unknown. Estimated: the spell may
--- have hit no enemy.
-function Tracker:OnHiddenHit(guid, now)
-	Link(self.contacts, guid, "hidden", now, true, true)
+-- The unit (token `unit`) finished casting a spell whose enemy hits are not logged
+-- (Core.hiddenHitSpells). It may have refreshed the combat of the caster and of each tracked enemy
+-- of the caster; which ones is unknown until one of them stays in combat past its timer.
+function Tracker:OnHiddenHit(guid, unit, now)
+	local maybe = { [guid] = true }
+	for other, token in pairs(self.tokens) do
+		-- the enemy part hits units the caster can attack
+		if other ~= guid and self.env.UnitCanAttack(unit, token) then maybe[other] = true end
+	end
+	self.hiddenCasts[#self.hiddenCasts + 1] = { t = now, maybe = maybe }
+end
+
+-- Called while the unit is in combat with its timer from `start`. Once the timer ran out, the unit
+-- had a contact the combat log did not show. A hidden-hit cast after `start` that may have hit it
+-- explains it: the latest one becomes its contact. Returns whether one did.
+function Tracker:ExplainOverdue(guid, start, now)
+	if now - start <= Core.duration + Core.OVERDUE_GRACE then return false end
+	local best
+	for _, cast in ipairs(self.hiddenCasts) do
+		if cast.maybe[guid] and cast.t > start and cast.t <= now and (not best or cast.t > best) then best = cast.t end
+	end
+	if best then Link(self.contacts, guid, "hidden", best, true, true) end
+	return best ~= nil
 end
 
 -- The unit left combat. Returns the measured combat duration when the leave was a plain timer
@@ -307,6 +328,8 @@ function Tracker:Prune(now)
 	for guid, t in pairs(self.keep) do
 		if now - t > Core.KEEP_MAX then self.keep[guid] = nil end
 	end
+	local casts = self.hiddenCasts
+	while casts[1] and now - casts[1].t > expired do table.remove(casts, 1) end
 	for guid, t in pairs(self.deadAt) do
 		if now - t > Core.DEATH_CONFIRM then
 			self.deadAt[guid] = nil
