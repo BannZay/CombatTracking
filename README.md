@@ -10,12 +10,17 @@ Tracks combat status of your target, focus, party members and arena enemies (are
 - While a unit is in combat, a swipe shows when it can leave combat. The addon follows the server's rules:
   - PvP combat is kept per pair of units and ends 5 seconds after the last hostile contact of the pair (melee,
     hostile spells that hit or miss, hostile casts). Periodic damage and healing do not refresh it.
-  - When an opponent dies, its contacts no longer count. Vanish and Feign Death drop only the unit's own combat.
+  - When an opponent dies, its contacts no longer count. Vanish and Feign Death drop only the unit's own combat
+    (a hunter in Feign Death shows as out of combat, not as dead).
+  - Attacking a pet also puts its owner in combat with the attacker.
   - Healing or buffing a unit in combat puts the helper in combat with that unit's opponents.
   - Spells without initial aggro (Sap, Hunter's Mark, Blessing of Wisdom, ...) only count on a target already in
     combat. The spell list is generated from the game data (`tools/gen_spelldata.py`).
   - Fighting NPCs has no timer: the swipe stays full.
-  - The exact duration is measured on each realm from observed combats (options: General > Combat timer).
+  - The exact duration is measured on each realm from observed combats, mostly your own (options: General >
+    Combat timer), and can be set by hand.
+  - With "Show timer", the icon counts down the seconds; "?" means the unit is still in combat past its timer (a
+    contact out of combat log range) or is out of your client's range.
 - A sound plays when a unit leaves combat. Units that die or change (a new target, another party member) never play a
   sound.
 - Arena icons can be attached to Gladius.
@@ -31,8 +36,8 @@ Tracks combat status of your target, focus, party members and arena enemies (are
 - Per unit: enabled, sound, anchor frame (any frame name, for example the frame of your unit frames addon; the icon
   moves with it), reset position.
 - Sounds for entering combat, leaving combat and your own leaving combat (any LibSharedMedia sound).
-- Icon, scale, dimmed opacity (0 hides dimmed icons), unit names, countdown timer, only players, hide party icons in
-  raids, attach to Gladius.
+- Icon, scale, dimmed opacity (0 hides dimmed icons), unit names, countdown timer, only players (on by default:
+  the addon is meant for PvP), hide party icons in raids, attach to Gladius.
 - Profiles (AceDB). Settings from versions before 3.0 are migrated automatically.
 
 ## Limitations
