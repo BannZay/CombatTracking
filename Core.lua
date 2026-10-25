@@ -133,7 +133,7 @@ function Core.NewTracker(env)
 		suppressedAt = {}, -- guid -> time of Vanish, Feign Death, ...
 		deadAt = {}, -- guid -> time of UNIT_DIED, until confirmed (not a Feign Death)
 		ownerOf = {}, -- pet guid -> owner guid
-		hiddenCasts = {}, -- { t, maybe = set of guids it may have hit }, oldest first
+		hiddenCasts = {}, -- { t, caster, maybe = set of guids it may have hit }, oldest first
 	}, Tracker)
 end
 
@@ -250,12 +250,24 @@ end
 -- (Core.hiddenHitSpells). It may have refreshed the combat of the caster and of each tracked enemy
 -- of the caster; which ones is unknown until one of them stays in combat past its timer.
 function Tracker:OnHiddenHit(guid, unit, now)
+	-- the same cast is seen through each token of the caster (arena1, target, focus)
+	local last = self.hiddenCasts[#self.hiddenCasts]
+	if last and last.caster == guid and now - last.t < 0.1 then return end
 	local maybe = { [guid] = true }
 	for other, token in pairs(self.tokens) do
 		-- the enemy part hits units the caster can attack
 		if other ~= guid and self.env.UnitCanAttack(unit, token) then maybe[other] = true end
 	end
-	self.hiddenCasts[#self.hiddenCasts + 1] = { t = now, maybe = maybe }
+	self.hiddenCasts[#self.hiddenCasts + 1] = { t = now, caster = guid, maybe = maybe }
+end
+
+-- The latest hidden-hit cast in (after, now] that may have hit the unit, or nil.
+function Tracker:LastHiddenHit(guid, after, now)
+	local best
+	for _, cast in ipairs(self.hiddenCasts) do
+		if cast.maybe[guid] and cast.t > after and cast.t <= now and (not best or cast.t > best) then best = cast.t end
+	end
+	return best
 end
 
 -- Called while the unit is in combat with its timer from `start`. Once the timer ran out, the unit
@@ -263,10 +275,7 @@ end
 -- explains it: the latest one becomes its contact. Returns whether one did.
 function Tracker:ExplainOverdue(guid, start, now)
 	if now - start <= Core.duration + Core.OVERDUE_GRACE then return false end
-	local best
-	for _, cast in ipairs(self.hiddenCasts) do
-		if cast.maybe[guid] and cast.t > start and cast.t <= now and (not best or cast.t > best) then best = cast.t end
-	end
+	local best = self:LastHiddenHit(guid, start, now)
 	if best then Link(self.contacts, guid, "hidden", best, true, true) end
 	return best ~= nil
 end
@@ -277,7 +286,8 @@ function Tracker:OnLeave(guid, now)
 	local start, mode, est = self:GetSwipe(guid, now)
 	local suppressed = self.suppressedAt[guid] and now - self.suppressedAt[guid] <= Core.SUPPRESS_WINDOW
 	local sample
-	if mode == "timer" and not est and not suppressed then
+	-- a hidden hit since the last contact may have been the real last contact
+	if mode == "timer" and not est and not suppressed and not self:LastHiddenHit(guid, start, now) then
 		local gap = now - start
 		if gap >= Core.SAMPLE_MIN and gap <= Core.SAMPLE_MAX then sample = gap end
 	end

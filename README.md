@@ -24,7 +24,8 @@ Tracks combat status of your target, focus, party members and arena enemies (are
   - The exact duration is measured on each realm from observed combats, mostly your own (options: General >
     Combat timer), and can be set by hand.
   - With "Show timer", the icon counts down the seconds; "?" means the unit is still in combat past its timer (a
-    contact out of combat log range) or is out of your client's range.
+    contact out of combat log range) or your client does not see it (a stealthed arena enemy, a far party
+    member). A unit that is not seen keeps its last state.
 - A sound plays when a unit leaves combat. Units that die or change (a new target, another party member) never play a
   sound.
 - Arena icons can be attached to Gladius.

@@ -515,12 +515,12 @@ function CT:UpdateIcon(icon, now, precise)
 	local guid = self:GetTrackedGUID(icon)
 	if guid then tracker:SetTracked(guid, token) end
 
-	-- A unit out of the client's range (a far party member) has no combat flag: keep its last state
-	-- and pick up the current one silently when it is back.
+	-- A unit the client does not see (a stealthed arena enemy, a far party member) has no combat flag:
+	-- show its last state and pick up the current one silently when it is seen again.
 	if guid and guid == icon.state.guid and not UnitIsVisible(token) then
 		icon.state.stale = true
 		icon:Show()
-		SetActive(icon, false)
+		SetActive(icon, icon.state.inCombat == p.inverted)
 		SetSwipe(icon, nil)
 		icon.timer:SetText("?")
 		return
