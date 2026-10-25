@@ -2,10 +2,12 @@
 ## Title: CombatTracking
 ## SavedVariables: CombatTrackingDB
 ## Author: BannZay
-## Notes: Tracks combat status
-## Version: v2.3
+## Notes: Tracks combat status of your target, focus, party and arena enemies
+## Version: v3.0
 ## DefaultState: Enabled
-## OptionalDeps: Ace3, LibStub, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
+## OptionalDeps: Ace3, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets, Gladius
 
 embeds.xml
+Core.lua
 CombatTracking.lua
+Options.lua
