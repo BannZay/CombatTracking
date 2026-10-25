@@ -170,6 +170,38 @@ function CT:BuildOptions()
 				values = TextureValues,
 				order = 22,
 			},
+			timerHeader = { type = "header", name = "Combat timer", order = 30 },
+			timerInfo = {
+				type = "description",
+				name = function()
+					local samples = CT:GetDurationSamples()
+					local measured = CT.Core.EstimateDuration(samples)
+					return format("A player leaves PvP combat %.2f s after the last hostile action. %s",
+						CT.Core.duration,
+						measured and format("Measured on this realm from %d combats.", #samples)
+							or format("Not measured on this realm yet (%d of %d combats).", #samples, CT.Core.MIN_SAMPLES))
+				end,
+				order = 31,
+			},
+			timerOverride = {
+				type = "range",
+				name = "Manual duration",
+				desc = "Seconds until a player leaves PvP combat. 0 uses the duration measured on the realm.",
+				min = 0, max = 8, step = 0.05,
+				order = 32,
+				set = function(_, value)
+					CT.db.profile.timerOverride = value
+					CT:ApplyDuration()
+					CT:ApplySettings()
+				end,
+			},
+			timerReset = {
+				type = "execute",
+				name = "Measure again",
+				desc = "Forget the durations measured on this realm",
+				order = 33,
+				func = function() CT:ResetDurationSamples() end,
+			},
 		},
 	}
 

@@ -8,6 +8,7 @@
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets, Gladius
 
 embeds.xml
+SpellData.lua
 Core.lua
 CombatTracking.lua
 Options.lua

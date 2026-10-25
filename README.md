@@ -7,8 +7,15 @@ Tracks combat status of your target, focus, party members and arena enemies (are
 ## How it works
 - Each tracked unit gets an icon. By default it is bright while the unit is **out of combat** (for example: it can
   be sapped) and dimmed in combat. The "Inverted" option swaps this.
-- While a unit is in combat, a swipe shows how long until it can leave combat (5.5 seconds after its last hostile
-  action). Channels such as Mind Control and Mind Sear keep the swipe full while they last.
+- While a unit is in combat, a swipe shows when it can leave combat. The addon follows the server's rules:
+  - PvP combat is kept per pair of units and ends 5 seconds after the last hostile contact of the pair (melee,
+    hostile spells that hit or miss, hostile casts). Periodic damage and healing do not refresh it.
+  - When an opponent dies, its contacts no longer count. Vanish and Feign Death drop only the unit's own combat.
+  - Healing or buffing a unit in combat puts the helper in combat with that unit's opponents.
+  - Spells without initial aggro (Sap, Hunter's Mark, Blessing of Wisdom, ...) only count on a target already in
+    combat. The spell list is generated from the game data (`tools/gen_spelldata.py`).
+  - Fighting NPCs has no timer: the swipe stays full.
+  - The exact duration is measured on each realm from observed combats (options: General > Combat timer).
 - A sound plays when a unit leaves combat. Units that die or change (a new target, another party member) never play a
   sound.
 - Arena icons can be attached to Gladius.

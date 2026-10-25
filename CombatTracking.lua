@@ -50,7 +50,8 @@ CT.defaults = {
 		inverted = false,
 		inactiveAlpha = 0.2,
 		showTimer = false,
-		onlyPlayers = false,
+		onlyPlayers = true, -- the addon is for PvP
+		timerOverride = 0, -- seconds; 0 = measured on the realm
 		hidePartyInRaid = true,
 		attachToGladius = true,
 		playSounds = true,
@@ -59,12 +60,16 @@ CT.defaults = {
 		playerLeaveSound = CT.SOUND_BEEP,
 		units = unitDefaults,
 	},
+	global = {
+		durations = { ["*"] = { samples = {} } }, -- realm -> measured combat timer samples
+	},
 }
 
 CT.locked = true
 CT.testMode = false
 CT.icons = {}
 CT.iconsByUnit = {}
+CT.iconsByToken = {}
 CT.tracker = Core.NewTracker({
 	UnitIsEnemy = function(a, b) return UnitIsEnemy(a, b) end,
 	UnitAffectingCombat = function(unit) return UnitAffectingCombat(unit) end,
@@ -123,7 +128,12 @@ function CT:InitDB()
 		CT.MigrateLegacy(legacy, self.db.profile)
 	end
 
-	local function OnProfileChanged() CT:ApplySettings() end
+	self:ApplyDuration()
+
+	local function OnProfileChanged()
+		CT:ApplyDuration()
+		CT:ApplySettings()
+	end
 	self.db.RegisterCallback(self, "OnProfileChanged", OnProfileChanged)
 	self.db.RegisterCallback(self, "OnProfileCopied", OnProfileChanged)
 	self.db.RegisterCallback(self, "OnProfileReset", OnProfileChanged)
@@ -234,6 +244,7 @@ function CT:CreateIcons()
 		local icon = CreateIcon(unit, index)
 		self.icons[index] = icon
 		self.iconsByUnit[unit] = icon
+		self.iconsByToken[icon.token] = icon
 	end
 end
 
@@ -355,19 +366,50 @@ function CT:PlaySound(name)
 	end
 end
 
-local function SetSwipe(icon, start, keep)
-	if start == icon.shownStart and keep == icon.shownKeep then return end
-	icon.shownStart, icon.shownKeep = start, keep
+-- mode "timer" counts down Core.duration; "pve" and "keep" show a full swipe without an end
+local function SetSwipe(icon, start, mode)
+	local duration = mode == "timer" and Core.duration or Core.KEEP_DURATION
+	if start == icon.shownStart and mode == icon.shownMode and duration == icon.shownDuration then return end
+	icon.shownStart, icon.shownMode, icon.shownDuration = start, mode, duration
 	if start then
-		CooldownFrame_SetTimer(icon.cooldown, start, keep and Core.KEEP_DURATION or Core.COMBAT_DURATION, 1)
+		CooldownFrame_SetTimer(icon.cooldown, start, duration, 1)
 	else
 		CooldownFrame_SetTimer(icon.cooldown, 0, 0, 0)
 	end
 end
 
-local function SetTimer(icon, start, keep, now)
-	local left = CT.db.profile.showTimer and Core.SwipeRemaining(start, keep, now)
+local function SetTimer(icon, start, mode, now)
+	local left = CT.db.profile.showTimer and Core.SwipeRemaining(start, mode, now)
 	icon.timer:SetText(left and format("%.0f", math.ceil(left)) or "")
+end
+
+------------------------------------------------------------------------
+-- Combat timer duration, measured per realm
+------------------------------------------------------------------------
+
+function CT:GetDurationSamples()
+	return self.db.global.durations[GetRealmName() or "?"].samples
+end
+
+-- Uses the manual duration, else the one measured on this realm, else the server default.
+function CT:ApplyDuration()
+	local override = self.db.profile.timerOverride
+	if override and override > 0 then
+		Core.SetDuration(override)
+	else
+		Core.SetDuration(Core.EstimateDuration(self:GetDurationSamples()))
+	end
+end
+
+function CT:AddDurationSample(seconds)
+	Core.AddSample(self:GetDurationSamples(), seconds)
+	self:ApplyDuration()
+end
+
+function CT:ResetDurationSamples()
+	local samples = self:GetDurationSamples()
+	for i = #samples, 1, -1 do samples[i] = nil end
+	self:ApplyDuration()
 end
 
 -- Texts, alpha and mouse handling that depend on the settings, not on the unit.
@@ -413,20 +455,32 @@ local function SetActive(icon, active)
 	icon.texture:SetAlpha(active and 1 or CT.db.profile.inactiveAlpha)
 end
 
-function CT:UpdateIcon(icon, now, soundsPlayed)
+-- `precise`: called from UNIT_FLAGS, at the moment the combat flag changed.
+function CT:UpdateIcon(icon, now, soundsPlayed, precise)
 	local p = self.db.profile
 	local token = icon.token
+	local tracker = self.tracker
 	local guid = self:GetTrackedGUID(icon)
-	if guid then self.tracker:SetTracked(guid, token) end
+	if guid then tracker:SetTracked(guid, token) end
+
+	-- A unit out of the client's range (a far party member) has no combat flag: keep its last state.
+	if guid and guid == icon.state.guid and not UnitIsVisible(token) then
+		icon:Show()
+		SetActive(icon, false)
+		SetSwipe(icon, nil)
+		icon.timer:SetText("?")
+		return
+	end
+
 	local dead = guid and (UnitIsDeadOrGhost(token) or UnitHealth(token) == 0) -- UnitIsDead fails at range
 	local inCombat = guid and UnitAffectingCombat(token)
 
-	local change = Core.UpdateCombatState(icon.state, now, guid, inCombat, dead)
+	local change = Core.UpdateCombatState(icon.state, guid, inCombat, dead)
 	if change == "enter" then
-		local start = self.tracker:GetSwipe(guid)
-		if not start or now - start > Core.COMBAT_DURATION then self.tracker:Mark(guid, now) end
+		tracker:OnEnter(guid, now)
 	elseif change == "leave" then
-		self.tracker:ClearSwipe(guid)
+		local sample = tracker:OnLeave(guid, now)
+		if sample and precise then self:AddDurationSample(sample) end
 	end
 	if change and p.playSounds and p.units[icon.unit].sound and not soundsPlayed[guid] then
 		soundsPlayed[guid] = true
@@ -444,10 +498,12 @@ function CT:UpdateIcon(icon, now, soundsPlayed)
 	icon:Show()
 	SetActive(icon, not dead and (icon.state.inCombat == p.inverted))
 
-	local start, keep
-	if icon.state.inCombat then start, keep = self.tracker:GetSwipe(guid) end
-	SetSwipe(icon, start, keep)
-	SetTimer(icon, start, keep, now)
+	local start, mode
+	if icon.state.inCombat then
+		start, mode = tracker:GetSwipe(guid, now)
+	end
+	SetSwipe(icon, start, mode)
+	SetTimer(icon, start, mode, now)
 end
 
 -- Test mode: every enabled icon is shown, every second one in combat with a running swipe.
@@ -461,11 +517,11 @@ function CT:UpdateTestIcon(icon, now)
 	SetActive(icon, inCombat == self.db.profile.inverted)
 	local start
 	if inCombat then
-		local period = Core.COMBAT_DURATION + 1
+		local period = Core.duration + 1
 		start = now - (now + icon.index) % period
 	end
-	SetSwipe(icon, start, nil)
-	SetTimer(icon, start, nil, now)
+	SetSwipe(icon, start, start and "timer")
+	SetTimer(icon, start, "timer", now)
 end
 
 -- Updates all icons from their units. Runs every TICK and on unit changes.
@@ -481,7 +537,18 @@ function CT:Refresh()
 	for _, icon in ipairs(self.icons) do
 		self:UpdateIcon(icon, now, soundsPlayed)
 	end
-	self.tracker:Prune(now)
+	if now - (self.lastPrune or 0) >= 1 then
+		self.lastPrune = now
+		self.tracker:Prune(now)
+	end
+end
+
+-- The combat flag of a unit changed: update its icon at once, so leaving combat is seen exactly.
+function CT:OnUnitFlags(unit)
+	local icon = self.iconsByToken[unit]
+	if icon and self.db and self.locked and not self.testMode then
+		self:UpdateIcon(icon, GetTime(), {}, true)
+	end
 end
 
 -- Re-applies every setting to the icons (after an option or profile change).
@@ -551,6 +618,7 @@ SlashCmdList["COMBATTRACKING"] = function(cmd) CT:HandleSlashCommand(cmd) end
 -- Events
 ------------------------------------------------------------------------
 
+local NO_GUID = "0x0000000000000000" -- the combat log's GUID of "no unit"
 local driver = CreateFrame("Frame")
 local sinceTick = 0
 
@@ -580,15 +648,29 @@ local events = {
 		CT:ApplySettings()
 		driver:SetScript("OnUpdate", OnUpdate)
 	end,
-	COMBAT_LOG_EVENT_UNFILTERED = function(_, eventType, srcGUID, _, srcFlags, dstGUID, _, dstFlags, _, spellName)
-		CT.tracker:OnCombatLog(GetTime(), eventType, srcGUID, srcFlags, dstGUID, dstFlags,
-			type(spellName) == "string" and spellName or nil)
+	COMBAT_LOG_EVENT_UNFILTERED = function(timestamp, eventType, srcGUID, _, srcFlags, dstGUID, _, dstFlags, a9, a10, _, a12)
+		if not Core.Classify(eventType) then return end
+		local spellId, spellName, missType
+		if eventType == "SWING_MISSED" then
+			missType = a9
+		elseif eventType ~= "SWING_DAMAGE" and type(a9) == "number" then
+			spellId, spellName = a9, a10
+			if eventType == "SPELL_MISSED" or eventType == "RANGE_MISSED" then missType = a12 end
+		end
+		if srcGUID == NO_GUID then srcGUID = nil end
+		if dstGUID == NO_GUID then dstGUID = nil end
+		CT.tracker:OnCombatLog(Core.EventTime(timestamp, GetTime()), eventType, srcGUID, srcFlags, dstGUID, dstFlags,
+			spellId, spellName, missType)
 	end,
+	UNIT_FLAGS = function(unit) CT:OnUnitFlags(unit) end,
 	PLAYER_TARGET_CHANGED = RefreshNow,
 	PLAYER_FOCUS_CHANGED = RefreshNow,
 	PARTY_MEMBERS_CHANGED = RefreshNow,
 	ARENA_OPPONENT_UPDATE = RefreshNow,
-	PLAYER_ENTERING_WORLD = RefreshNow,
+	PLAYER_ENTERING_WORLD = function()
+		Core.ResetClock()
+		CT:Refresh()
+	end,
 }
 
 for event in pairs(events) do driver:RegisterEvent(event) end
