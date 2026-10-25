@@ -70,6 +70,8 @@ CT.testMode = false
 CT.icons = {}
 CT.iconsByUnit = {}
 CT.iconsByToken = {}
+CT.playerState = {} -- the player's combat state for measuring, without a Player icon
+CT.soundAt = {} -- guid -> time its last sound played
 CT.tracker = Core.NewTracker({
 	UnitIsEnemy = function(a, b) return UnitIsEnemy(a, b) end,
 	UnitAffectingCombat = function(unit) return UnitAffectingCombat(unit) end,
@@ -455,16 +457,49 @@ local function SetActive(icon, active)
 	icon.texture:SetAlpha(active and 1 or CT.db.profile.inactiveAlpha)
 end
 
+-- Feeds a unit's combat flag to its state and the tracker; returns "enter", "leave" or nil.
 -- `precise`: called from UNIT_FLAGS, at the moment the combat flag changed.
-function CT:UpdateIcon(icon, now, soundsPlayed, precise)
+function CT:TrackCombat(state, guid, token, dead, now, precise)
+	local change = Core.UpdateCombatState(state, guid, guid and UnitAffectingCombat(token), dead)
+	if change == "enter" then
+		self.tracker:OnEnter(guid, now)
+	elseif change == "leave" then
+		local sample = self.tracker:OnLeave(guid, now)
+		if sample and precise then self:AddDurationSample(sample) end
+	end
+	return change
+end
+
+-- One sound per unit and change, also when several icons show the unit (target and arena1).
+function CT:ClaimSound(guid, now)
+	if self.soundAt[guid] == now then return false end
+	self.soundAt[guid] = now
+	return true
+end
+
+-- The player's own combat is the best measurement of the combat timer (all of its contacts are in
+-- the combat log), so it is followed even without a Player icon.
+function CT:MeasurePlayer(now, precise)
+	if self.iconsByUnit.Player.state.guid then -- the Player icon follows it
+		self.playerState.stale = true
+		return
+	end
+	local guid = UnitGUID("player")
+	self.tracker:SetTracked(guid, "player")
+	self:TrackCombat(self.playerState, guid, "player", UnitIsDeadOrGhost("player"), now, precise)
+end
+
+function CT:UpdateIcon(icon, now, precise)
 	local p = self.db.profile
 	local token = icon.token
 	local tracker = self.tracker
 	local guid = self:GetTrackedGUID(icon)
 	if guid then tracker:SetTracked(guid, token) end
 
-	-- A unit out of the client's range (a far party member) has no combat flag: keep its last state.
+	-- A unit out of the client's range (a far party member) has no combat flag: keep its last state
+	-- and pick up the current one silently when it is back.
 	if guid and guid == icon.state.guid and not UnitIsVisible(token) then
+		icon.state.stale = true
 		icon:Show()
 		SetActive(icon, false)
 		SetSwipe(icon, nil)
@@ -473,17 +508,8 @@ function CT:UpdateIcon(icon, now, soundsPlayed, precise)
 	end
 
 	local dead = guid and (UnitIsDeadOrGhost(token) or UnitHealth(token) == 0) -- UnitIsDead fails at range
-	local inCombat = guid and UnitAffectingCombat(token)
-
-	local change = Core.UpdateCombatState(icon.state, guid, inCombat, dead)
-	if change == "enter" then
-		tracker:OnEnter(guid, now)
-	elseif change == "leave" then
-		local sample = tracker:OnLeave(guid, now)
-		if sample and precise then self:AddDurationSample(sample) end
-	end
-	if change and p.playSounds and p.units[icon.unit].sound and not soundsPlayed[guid] then
-		soundsPlayed[guid] = true
+	local change = self:TrackCombat(icon.state, guid, token, dead, now, precise)
+	if change and p.playSounds and p.units[icon.unit].sound and self:ClaimSound(guid, now) then
 		if change == "enter" then
 			self:PlaySound(p.enterSound)
 		else
@@ -533,22 +559,25 @@ function CT:Refresh()
 		return
 	end
 	self.tracker:ClearTracked()
-	local soundsPlayed = {}
 	for _, icon in ipairs(self.icons) do
-		self:UpdateIcon(icon, now, soundsPlayed)
+		self:UpdateIcon(icon, now)
 	end
+	self:MeasurePlayer(now)
 	if now - (self.lastPrune or 0) >= 1 then
 		self.lastPrune = now
 		self.tracker:Prune(now)
+		for guid, t in pairs(self.soundAt) do
+			if now - t > 1 then self.soundAt[guid] = nil end
+		end
 	end
 end
 
 -- The combat flag of a unit changed: update its icon at once, so leaving combat is seen exactly.
 function CT:OnUnitFlags(unit)
+	if not self.db or not self.icons[1] or not self.locked or self.testMode then return end
 	local icon = self.iconsByToken[unit]
-	if icon and self.db and self.locked and not self.testMode then
-		self:UpdateIcon(icon, GetTime(), {}, true)
-	end
+	if icon then self:UpdateIcon(icon, GetTime(), true) end
+	if unit == "player" then self:MeasurePlayer(GetTime(), true) end
 end
 
 -- Re-applies every setting to the icons (after an option or profile change).

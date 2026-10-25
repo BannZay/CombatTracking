@@ -23,6 +23,9 @@ Core.KEEP_MAX = 65 -- a kept state without its aura removal is dropped after thi
 Core.PVE_TTL = 10 -- a PvE contact without a new one is forgotten after this long
 Core.FORGET_AFTER = 2 -- expired PvP contacts are dropped this long after expiring
 Core.SUPPRESS_WINDOW = 1 -- leaving combat this soon after Vanish & co. is not a timer expiry
+-- Feign Death also logs UNIT_DIED (the client logs a death when the "dead" flag is set). A death is
+-- final once no Feign Death aura came within this time.
+Core.DEATH_CONFIRM = 1
 
 -- duration measurement: gaps between the last contact and the combat flag dropping
 Core.SAMPLE_MIN, Core.SAMPLE_MAX = 4, 7
@@ -107,6 +110,7 @@ function Core.NewTracker(env)
 		contacts = {}, -- guid -> partner -> { t = last contact, first = first contact, pvp, est = estimated }
 		keep = {}, -- guid -> time a combat keeper channel started
 		suppressedAt = {}, -- guid -> time of Vanish, Feign Death, ...
+		deadAt = {}, -- guid -> time of UNIT_DIED, until confirmed (not a Feign Death)
 	}, Tracker)
 end
 
@@ -158,8 +162,8 @@ end
 function Tracker:HasLiveContacts(guid, now)
 	local list = self.contacts[guid]
 	if list then
-		for _, entry in pairs(list) do
-			if Live(entry, now) then return true end
+		for partner, entry in pairs(list) do
+			if Live(entry, now) and not self.deadAt[partner] then return true end
 		end
 	end
 	return self.keep[guid] ~= nil
@@ -188,6 +192,13 @@ function Tracker:Inherit(helper, helped, now)
 		-- the helped unit's opponents are unknown: a reference with the helped unit stands for them
 		Link(self.contacts, helper, "help:" .. helped, now, true)
 	end
+end
+
+-- A unit died: its references stop counting at once and end when the death is confirmed.
+function Tracker:OnDeath(guid, now)
+	local suppressed = self.suppressedAt[guid]
+	if suppressed and now - suppressed <= Core.DEATH_CONFIRM then return end -- Feign Death
+	self.deadAt[guid] = now
 end
 
 -- Ends every reference of the unit, on both sides (death, unattackable).
@@ -235,9 +246,12 @@ function Tracker:GetSwipe(guid, now)
 	if self.keep[guid] then return self.keep[guid], "keep" end
 	local list = self.contacts[guid]
 	if not list then return nil end
+	local deadAt = self.deadAt
 	local start, est, pveStart
-	for _, entry in pairs(list) do
-		if entry.pvp then
+	for partner, entry in pairs(list) do
+		if deadAt[partner] then
+			-- a dead opponent no longer counts
+		elseif entry.pvp then
 			if not start or entry.t > start then start, est = entry.t, entry.est end
 		elseif now - entry.t <= Core.PVE_TTL and (not pveStart or entry.first < pveStart) then
 			pveStart = entry.first
@@ -261,6 +275,12 @@ function Tracker:Prune(now)
 	for guid, t in pairs(self.keep) do
 		if now - t > Core.KEEP_MAX then self.keep[guid] = nil end
 	end
+	for guid, t in pairs(self.deadAt) do
+		if now - t > Core.DEATH_CONFIRM then
+			self.deadAt[guid] = nil
+			self:EndAll(guid)
+		end
+	end
 end
 
 function Tracker:IsHostilePair(srcGUID, srcFlags, dstGUID, dstFlags)
@@ -278,7 +298,7 @@ function Tracker:OnCombatLog(now, eventType, srcGUID, srcFlags, dstGUID, dstFlag
 	if not kind then return end
 
 	if kind == "death" then
-		if dstGUID then self:EndAll(dstGUID) end
+		if dstGUID then self:OnDeath(dstGUID, now) end
 		return
 	end
 	if spellId then
@@ -286,6 +306,7 @@ function Tracker:OnCombatLog(now, eventType, srcGUID, srcFlags, dstGUID, dstFlag
 			local who = eventType == "SPELL_CAST_SUCCESS" and srcGUID or dstGUID
 			if who and (eventType == "SPELL_CAST_SUCCESS" or eventType == "SPELL_AURA_APPLIED") then
 				self.suppressedAt[who] = now
+				self.deadAt[who] = nil -- its UNIT_DIED was a Feign Death
 			end
 		elseif END_COMBAT[spellId] and eventType == "SPELL_AURA_APPLIED" and dstGUID then
 			self:EndAll(dstGUID)
@@ -325,11 +346,13 @@ end
 -- Per-icon combat state, fed by the unit's combat flag
 ------------------------------------------------------------------------
 
--- Updates `st` ({ guid, inCombat }) for the unit now shown by an icon.
+-- Updates `st` ({ guid, inCombat, stale }) for the unit now shown by an icon.
 -- Returns "enter" or "leave" on a real change of the same unit, else nil. A new unit, a unit that
--- disappears and a unit that dies never return a change (no sound for those).
+-- disappears, a unit that dies and a unit seen again after being out of range (stale) never return
+-- a change (no sound for those).
 function Core.UpdateCombatState(st, guid, inCombat, dead)
-	if guid ~= st.guid then
+	if guid ~= st.guid or st.stale then
+		st.stale = nil
 		st.guid = guid
 		st.inCombat = guid ~= nil and inCombat and not dead and true or false
 		return nil
