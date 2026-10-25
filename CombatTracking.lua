@@ -484,9 +484,13 @@ function CT:TrackCombat(state, guid, token, dead, now, precise)
 	return change
 end
 
--- One sound per unit and change, also when several icons show the unit (target and arena1).
+-- One sound per unit and change, also when several icons show the unit (target and arena1): each
+-- icon gets its own UNIT_FLAGS, a few milliseconds apart.
+local SOUND_DEDUPE = 0.25
+
 function CT:ClaimSound(guid, now)
-	if self.soundAt[guid] == now then return false end
+	local last = self.soundAt[guid]
+	if last and now - last < SOUND_DEDUPE then return false end
 	self.soundAt[guid] = now
 	return true
 end
@@ -500,7 +504,7 @@ function CT:MeasurePlayer(now, precise)
 	end
 	local guid = UnitGUID("player")
 	self.tracker:SetTracked(guid, "player")
-	self:TrackCombat(self.playerState, guid, "player", UnitIsDeadOrGhost("player"), now, precise)
+	self:TrackCombat(self.playerState, guid, "player", UnitHealth("player") == 0 or UnitIsGhost("player"), now, precise)
 end
 
 function CT:UpdateIcon(icon, now, precise)
@@ -521,7 +525,9 @@ function CT:UpdateIcon(icon, now, precise)
 		return
 	end
 
-	local dead = guid and (UnitIsDeadOrGhost(token) or UnitHealth(token) == 0) -- UnitIsDead fails at range
+	-- Health, not UnitIsDeadOrGhost: a hunter in Feign Death has the "dead" flag but is alive (and out
+	-- of combat). UnitIsDead also fails at range.
+	local dead = guid and (UnitHealth(token) == 0 or UnitIsGhost(token))
 	local change = self:TrackCombat(icon.state, guid, token, dead, now, precise)
 	if change and p.playSounds and p.units[icon.unit].sound and self:ClaimSound(guid, now) then
 		if change == "enter" then
