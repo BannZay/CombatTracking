@@ -84,7 +84,7 @@ sets), not the generated file.
 `python tools/make_release.py` packs the working directory into `dist/CombatTracking-<version>.zip` (the version
 comes from `## Version` in `CombatTracking.toc`): tracked files as they are now, plus new files git does not ignore.
 The zip holds one `CombatTracking` folder to unpack into `Interface/AddOns`; `tools`, `screenshots`,
-`CLAUDE.md` and dot files are left out.
+`AGENTS.md` and dot files are left out.
 - `python tools/make_release.py <commit>` packs a commit (hash, tag or branch) instead, without uncommitted changes.
 - `python tools/make_release_head.py` packs the last commit (it calls `make_release.py HEAD`).
 - `-o <folder>` sets a different output folder.
